@@ -135,15 +135,67 @@ main.app-main {
 
 /* ---- Page title ---- */
 .page-title {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
   margin-bottom: 4px;
 }
 .page-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 0;
+}
+.page-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.page-toolbar-left { flex: 1; min-width: 0; }
+.page-toolbar-right { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
+
+/* ---- Summary strip (compact, not metric cards) ---- */
+.summary-strip {
+  display: flex;
+  gap: 20px;
   font-size: 13px;
   color: var(--text-muted);
-  margin-bottom: 20px;
+  padding: 8px 0;
+  margin-bottom: 16px;
+}
+.summary-strip span { white-space: nowrap; }
+.summary-strip strong { color: var(--text); font-weight: 600; }
+
+/* ---- Empty state (bounded) ---- */
+.empty-bounded {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+  min-height: 200px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.empty-bounded .icon {
+  font-size: 20px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.empty-bounded .heading {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.empty-bounded .detail {
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /* ---- Sections (subtle dividers, not cards) ---- */
@@ -160,14 +212,25 @@ main.app-main {
   color: var(--text);
 }
 .section h3 {
-  font-size: .78rem;
+  font-size: 13px;
   font-weight: 600;
   margin: 12px 0 6px;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: .04em;
 }
-.kicker { color: var(--text-muted); font-size: .82rem; }
+.kicker { color: var(--text-muted); font-size: 13px; }
+
+/* ---- Incident 60/40 split ---- */
+.incident-decision {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 768px) {
+  .incident-decision { grid-template-columns: 1fr; }
+}
 
 /* ---- Buttons ---- */
 button.btn {

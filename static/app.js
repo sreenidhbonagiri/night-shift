@@ -137,24 +137,25 @@ function renderInboxResults(r) {
   const s = r.summary || {};
   const d = s.dispositions || {};
   const rt = s.routes || {};
-  $('inboxMetrics').innerHTML =
-    metric('Signals', s.total || 0) +
-    metric('Benign', d.BENIGN || 0, 'good') +
-    metric('Actionable', d.ACTIONABLE || 0) +
-    metric('Needs review', d.NEEDS_HUMAN_REVIEW || 0, 'warn') +
-    metric('Classification mismatches', s.classification_mismatches || 0, s.classification_mismatches ? 'warn' : '') +
-    metric('Routing mismatches', s.routing_mismatches || 0, s.routing_mismatches ? 'warn' : '');
+  // Compact summary strip: total, dismissed, investigate, review, remediate
+  $('inboxSummaryStrip').innerHTML =
+    `<span><strong>${s.total || 0}</strong> signals</span>` +
+    `<span><strong>${rt.dismiss || 0}</strong> dismissed</span>` +
+    `<span><strong>${rt.investigate || 0}</strong> investigate</span>` +
+    `<span><strong>${rt.human_review || 0}</strong> human review</span>` +
+    `<span><strong>${rt.remediate || 0}</strong> remediate</span>`;
+
+  // Mismatch counts go into evaluation diagnostics, not the main table
 
   const rows = (r.inbox_results || []).map(x => {
     const pe = x.patch_eligibility || {};
     const dispCls = x.disposition === 'BENIGN' ? 'good' : x.disposition === 'NEEDS_HUMAN_REVIEW' ? 'warn' : '';
     const routeCls = x.policy_route === 'remediate' ? 'good' : x.policy_route === 'human_review' ? 'warn' : '';
-    // Use readable description as the main label; fixture ID is secondary.
     return `<tr class="signal-row" tabindex="0" data-key="${esc(x.log_key)}">
-      <td><strong>${esc(x.description || x.log_key)}</strong><br><small class="muted">${esc(x.log_key)}</small></td>
+      <td><strong>${esc(x.description || x.log_key)}</strong><br><small style="color:var(--text-muted)">${esc(x.log_key)}</small></td>
       <td>${badge(DISP_LABELS[x.disposition] || x.disposition, dispCls)}</td>
       <td>${badge(ROUTE_LABELS[x.policy_route] || x.policy_route, routeCls)}</td>
-      <td>${esc(NEXT_ACTION[x.policy_route] || '—')}</td>
+      <td><button class="btn secondary sm" data-open="${esc(x.log_key)}" aria-label="Open ${esc(x.description || x.log_key)}">Open</button></td>
     </tr>`;
   }).join('');
   $('inboxTableBody').innerHTML = rows;
@@ -166,6 +167,12 @@ function renderInboxResults(r) {
       if (e.key === 'Enter') selectSignal(row.dataset.key);
       if (e.key === 'ArrowDown') { e.preventDefault(); row.nextElementSibling?.focus(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); row.previousElementSibling?.focus(); }
+    });
+  });
+  document.querySelectorAll('[data-open]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      selectSignal(btn.dataset.open);
     });
   });
 
@@ -408,31 +415,41 @@ function renderIncident(d, signal) {
   detailHtml += '</div>';
 
   $('incidentContent').innerHTML = `
-    <h1 class="page-title">${esc(signal?.description || d.log_key || 'Recovery incident')}</h1>
-    <p class="page-subtitle">${esc(d.log_key || '—')} &middot; ${esc(statusLabel(status))}</p>
-    <div class="metric-row" style="margin-bottom:14px">
-      ${metric('Status', statusLabel(status), staged ? 'good' : status === 'staging_stopped' ? 'good' : '')}
-      ${metric('Alert → tested patch', formatMs(d.elapsed_alert_to_tested_patch_ms), 'good')}
-      ${metric('Attempts', attempts.length)}
+    <div class="page-toolbar">
+      <div class="page-toolbar-left">
+        <h1 class="page-title">${esc(signal?.description || d.log_key || 'Recovery incident')}</h1>
+        <p class="page-subtitle">${esc(d.log_key || '—')} &middot; ${esc(statusLabel(status))}</p>
+      </div>
+      <div class="page-toolbar-right">
+        ${primaryBtn}
+        <button class="btn secondary sm" id="btnRefresh">Refresh</button>
+        <details class="demo-badge" style="margin-left:4px">
+          <summary>Simulation</summary>
+          <div style="position:absolute;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;min-width:200px;z-index:100">
+            <button class="btn secondary sm" id="btnSimulate" disabled>Record simulation only</button>
+          </div>
+        </details>
+      </div>
     </div>
-    <div class="controls" style="margin-bottom:14px">
-      ${primaryBtn}
-      <button class="btn secondary sm" id="btnRefresh">Refresh</button>
-      <details class="demo-badge" style="margin-left:auto">
-        <summary>Simulation</summary>
-        <div style="position:absolute;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;min-width:200px;z-index:100">
-          <button class="btn secondary sm" id="btnSimulate" disabled>Record simulation only</button>
-        </div>
-      </details>
+    <div class="summary-strip" style="margin-bottom:16px">
+      <span>Alert → tested patch <strong>${formatMs(d.elapsed_alert_to_tested_patch_ms)}</strong></span>
+      <span>Attempts <strong>${attempts.length}</strong></span>
+      ${firstEng?.fault_injection ? `<span>${badge('Fault injection on attempt 1', 'bad')}</span>` : ''}
+    </div>
+    <div class="incident-decision">
+      <div>
+        <h3 style="margin-top:0">Patch review</h3>
+        ${diffHtml}
+      </div>
+      <div>
+        <h3 style="margin-top:0">QA verdict</h3>
+        ${qaHtml}
+      </div>
     </div>
     <div class="section"><h3>Workflow</h3>${timelineHtml}</div>
     ${signalHtml}
-    <div class="incident-layout">
-      <div class="section"><h3>Patch review</h3>${diffHtml}</div>
-      <div class="section"><h3>QA verdict</h3>${qaHtml}</div>
-      <div class="section full">${stagingHtml}</div>
-      <div class="section full">${detailHtml}</div>
-    </div>
+    <div class="section full">${stagingHtml}</div>
+    <div class="section full">${detailHtml}</div>
   `;
 
   // Wire up action buttons

@@ -1871,3 +1871,43 @@ $ python -m pytest tests/ -q
 
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 22 — hierarchy and composition refinement
+
+### Changes
+1. Page toolbars: title + subtitle left, primary action right, consistent
+   across Inbox and Evidence. 28px titles, 14px body, 13px secondary.
+2. Inbox: six metric cards replaced with a compact summary strip
+   (signals/dismissed/investigate/review/remediate from actual routes).
+   Mismatch counts moved to Evaluation diagnostics (collapsed).
+   Table: description primary, fixture ID secondary, explicit Open
+   button, comfortable rows, subtle hover/selection.
+3. Empty state: bounded card (max 480px, centered, bordered) with
+   monochrome heading and muted detail. Loading copy shortened to
+   "Analyzing signals…" (technical note removed from main UI).
+4. Incident: title + status badge + primary action in compact toolbar;
+   large status metric card removed; timing/attempts/fault-injection in
+   a summary strip; diff (left) and QA verdict (right) in 60/40 split
+   directly below header; workflow + signal/model details below the
+   decision area.
+5. Evidence: selector + export in a compact toolbar; timing as a quiet
+   summary line (not disconnected cards); grouped by verification,
+   source evidence, raw model records.
+
+### Verification
+- Full mock suite: **195 passed** (29 grounded + 13 triage + 65 acceptance
+  + 22 staging + 20 release gates + 34 inbox + 9 integration + 3 log).
+- Desktop screenshot (1280px): toolbar layout correct (title left,
+  button right), bounded empty state centered, demo tools collapsed.
+- Narrow screenshot (375px): stacks cleanly, no page-wide horizontal
+  scroll.
+- LIMITATION: the browser toolset has no element-click capability, so
+  populated Inbox rows, Incident workspace (awaiting-approval /
+  released / stopped), and Evidence tab could not be rendered in a
+  populated state for screenshot verification. Those renderers are
+  verified by code inspection (all use the same token/section classes)
+  and the 195 tests.
+
+### Status after checkpoint 22
+- Committed locally; NOT pushed.
+- Paused.

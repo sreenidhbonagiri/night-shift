@@ -41,29 +41,32 @@
 
 <!-- ============ INBOX TAB ============ -->
 <section class="tab-panel active" id="tab-inbox" role="tabpanel">
-  <h1 class="page-title">Inbox</h1>
-  <p class="page-subtitle">Review signals. Verify patches. Approve the release.</p>
-
-  <div class="controls" style="margin-bottom:20px">
-    <button class="btn primary" id="btnAnalyzeInbox">Analyze inbox</button>
-    <span class="badge neutral">Synthetic demo</span>
+  <div class="page-toolbar">
+    <div class="page-toolbar-left">
+      <h1 class="page-title">Inbox</h1>
+      <p class="page-subtitle">Review signals. Verify patches. Approve the release.</p>
+    </div>
+    <div class="page-toolbar-right">
+      <span class="badge neutral">Synthetic demo</span>
+      <button class="btn primary" id="btnAnalyzeInbox">Analyze inbox</button>
+    </div>
   </div>
 
   <div class="section">
     <div id="inboxStates">
-      <div class="empty-state" id="inboxEmpty">
-        <div style="font-size:1.4rem;margin-bottom:6px;color:var(--text-muted)">&#x1F4E5;</div>
-        <p style="font-weight:500;color:var(--text-secondary);margin-bottom:4px">Ready for the next signal</p>
-        <p class="kicker">Analysis runs five synthetic signals with real Sentry classification.</p>
+      <div class="empty-bounded" id="inboxEmpty">
+        <div class="icon">&#x1F4E5;</div>
+        <div class="heading">Ready for the next signal</div>
+        <div class="detail">Analysis runs five synthetic signals with real Sentry classification.</div>
       </div>
       <div class="loading-state hidden" id="inboxLoading">
-        <span class="spinner"></span> Analyzing 5 synthetic signals&hellip; (synchronous, indeterminate duration)
+        <span class="spinner"></span> Analyzing signals&hellip;
       </div>
       <div class="error-state hidden" id="inboxError"></div>
     </div>
 
     <div id="inboxResultsWrap" class="hidden">
-      <div class="metric-row" id="inboxMetrics" style="margin-bottom:12px"></div>
+      <div class="summary-strip" id="inboxSummaryStrip"></div>
       <div class="tablewrap">
         <table id="inboxTable">
           <thead>
@@ -71,7 +74,7 @@
               <th>Signal</th>
               <th>Disposition</th>
               <th>Route</th>
-              <th>Next action</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="inboxTableBody"></tbody>
@@ -108,19 +111,23 @@
 
 <!-- ============ EVIDENCE TAB ============ -->
 <section class="tab-panel" id="tab-evidence" role="tabpanel">
-  <h1 class="page-title">Evidence</h1>
-  <p class="page-subtitle">Test results, tool reads, model outputs, and export for the selected incident.</p>
+  <div class="page-toolbar">
+    <div class="page-toolbar-left">
+      <h1 class="page-title">Evidence</h1>
+      <p class="page-subtitle">Test results, tool reads, model outputs, and export for the selected incident.</p>
+    </div>
+  </div>
 
   <div class="section">
     <div class="controls" style="margin-bottom:12px">
-      <select id="evidenceIncidentSelect" class="btn secondary" style="min-width:280px">
+      <select id="evidenceIncidentSelect" class="btn secondary" style="min-width:260px;font-size:13px">
         <option value="">Select incident&hellip;</option>
       </select>
-      <button class="btn primary" id="btnExport" disabled>Export evidence JSON</button>
+      <button class="btn primary sm" id="btnExport" disabled>Export evidence JSON</button>
     </div>
-    <div class="metric-row">
-      <div class="metric"><span class="label">Recovery timing</span><div class="value" id="evidRecoveryTiming">&mdash;</div></div>
-      <div class="metric"><span class="label">Total inbox time</span><div class="value" id="evidInboxTiming">&mdash;</div></div>
+    <div class="summary-strip">
+      <span>Recovery timing <strong id="evidRecoveryTiming">&mdash;</strong></span>
+      <span>Total inbox time <strong id="evidInboxTiming">&mdash;</strong></span>
     </div>
   </div>
   <div id="evidenceContent"></div>
