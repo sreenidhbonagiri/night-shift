@@ -669,3 +669,262 @@ Preserved regression suites:
 - Checkpoint 4 complete.
 - Service remains localhost-only (`--host 127.0.0.1`).
 - No external publishing or deployment performed.
+
+## Checkpoint 5 — grounded Engineer investigation protocol (Mel-authored)
+
+Recovered the interrupted implementation in `<repo-root>/night-shift-mel`
+without reading or copying source from `<repo-root>/night-shift`.
+All work remains in this Mel session's directory and preserves the existing
+Git commits/provenance.
+
+### Two-phase investigation protocol (`app/engineer_agent.py`)
+1. **Model calls for tool operations**: the Engineer model is prompted to
+   return a single JSON object with `tool_calls` (`list_files`, `read_file`).
+2. **Python validates and executes restricted tools**: `_call_tool` dispatches
+   only the two read-only tools in `app/eng_tools.py`, which resolve direct
+   children of `fixtures/test_app` and reject traversal, parents, subdirectories,
+   and hidden files.
+3. **Second model call receives actual results**: not used in the current
+   single-turn design — instead, the first model response includes findings,
+   citations, and a proposal; Python verifies citations against the real tool
+   results and recomputes the grounding gate. This satisfies the bounded task:
+   model-generated claims of tool execution are not accepted as evidence.
+4. **Mandatory grounding gate** (`_grounding_problems`):
+   - at least one `.py` source file must be read
+   - a `requirements*` file must be read
+   - `declared_version` must equal the fixture pin (`3.1.2`)
+   - evidence must be non-empty
+   - every piece of evidence must be verified against a `read_file` result
+   - at least one verified citation from application source
+   - at least one verified citation from the dependency declaration
+5. **Bounded retry**: one retry on grounding failure; after that,
+   `proposal=None`, `needs_human_review=True`, and the workflow stops before
+   any installer/approval/release step.
+6. **Function contracts preserved**: `propose_upgrade(advisory_context,
+   previous_rejection, model_fn=None)` still returns the same top-level dict
+   shape with added `investigation` and `raw` fields.
+
+### New file `app/eng_tools.py`
+Fixed read-only tool implementations:
+- `list_files()` — direct files only; rejects `directory` argument
+- `read_file(path='...')` — bare file names only; rejects path separators,
+  parent references, hidden files, absolute paths, and files outside the
+  fixture directory.
+
+### New file `tests/test_grounded_live.py`
+Focused mock tests with no real model calls:
+- eng_tools boundary tests (6 tests)
+- grounding gate tests (11 tests) covering pass, missing source,
+  listing-only, empty evidence, unread citations, wrong declared version,
+  workflow blocking, bounded retry pass, model error handoff, and tool-call
+  recording
+- live-progress endpoint tests (4 tests) for `/workflow` background + polling
+
+### Existing files modified
+- `app/engineer_agent.py` — replaced simple proposal with grounded
+  investigation + bounded retry + needs_human_review handoff.
+- `app/workflow.py` — stops the remediation loop on
+  `needs_human_review`, keeping `verification=None` and `qa=None` so no
+  installer is invoked.
+- `app/main.py` — dashboard renders `needs_human_review` status, shows
+  investigation details (files read, declared version, grounding/citation
+  problems, tool calls, evidence), and keeps staging controls disabled when
+  no verified patch exists.
+
+### Verification results
+```
+$ source .venv/bin/activate && python -m pytest tests/test_grounded_live.py -v
+21 passed in 65.78s
+
+$ source .venv/bin/activate && python -m pytest tests/test_mock_acceptance.py tests/test_staging.py -v
+80 passed in 0.66s
+```
+
+### Status after checkpoint 5
+- Grounded investigation protocol complete and verified with mocks.
+- No live model workflows run during this task.
+- No dashboard redesign or alternative architectures explored.
+- Service remains localhost-only.
+- Paused after logging; awaiting next instruction.
+
+## Checkpoint 6 — slow-test diagnosis, two-phase protocol repair, bounded live run
+
+### 1. Why `test_grounded_live.py` took 65.78s
+`--durations` on the suite showed the grounded-gate tests are effectively
+instant (<5 ms each); the time was spent in two `TestLiveProgress` tests
+that were not actually mock-only:
+- `test_workflow_starts_background_and_polls` — `POST /workflow` spawned a
+  real background thread calling `run_incident`, which calls the real
+  qwen3:4b model (Sentry ~2.7 s, Engineer multi-second, QA) and does real
+  disposable-venv installs. The test polled up to 60×1 s (31.28 s).
+- `test_workflow_sync_endpoint_exists` — the old assertion only checked
+  `!= 404`, so the endpoint really executed the full live workflow (~25.32 s).
+
+### 2. Fix (no weakened assertions)
+Both tests now `patch("app.main.run_incident")` with a fixture incident.
+Polling, duplicate-guard, status-not-found, and endpoint-status assertions
+are still exercised for real against the TestClient. Suite time dropped:
+- Before: 21 passed in 65.78s (then 63.24s on re-measure).
+- After: 21 passed in ~5–6s, with only `test_grounding_failure_blocks_installation`
+  (~5s) remaining — that one is a real workflow over mocks (fault-injection
+  attempt does a genuine `verify_patch` install/pytest; it is not a model call).
+
+### 3. Bounded live run (ONE real recovery)
+Ran `tests/live_staging_check.py` against the local Ollama qwen3:4b. The run
+failed at the grounding gate exactly as the task anticipated; the evidence
+was preserved and no corrected-patch installation, approval, or staging step
+was reached:
+- Incident `ee7c5f18-b469-4028-9d70-bbd02a4b522e`, wall time 24.1 s.
+- Attempt 1 (fault injection): `jinja2==3.1.2`, pytest rc=1, 2 failures,
+  QA rejected — bad-patch rejection confirmed.
+- Attempt 2 (model): `needs_human_review`; `verification=None`, `qa=None`
+  (no installer invoked). Grounding problems:
+  `['model error in tool loop: Model repeated an already-executed tool request; stopping the tool loop to avoid an infinite repeat.']`
+- `tests/diagnose_phases.py` showed why: in Phase 1 the model reliably
+  returns valid tool-call JSON but re-issues `list_files` every turn and
+  never requests `read_file` for the application source or the dependency
+  declaration, so the bounded loop hits its repeat guard and grounding
+  fails honestly instead of burning turns.
+
+### 4. Two-phase protocol repair (still in Mel, no source copied)
+`app/engineer_agent.py` was rewritten to the two-phase protocol:
+- Phase 1 — tool operations only: the model is asked for `tool_calls` per
+  turn; Python validates and executes only the restricted read-only tools
+  (`app/eng_tools.py`). A bounded turn loop runs up to `MAX_TOOL_TURNS`;
+  an anti-repeat guard stops the loop if the same tool+args request is seen
+  twice; after the first successful read the prompt asks the model to end
+  the investigation if it has enough evidence.
+- Phase 2 — findings + proposal: a separate model call receives the actual
+  tool results (file lists, file contents, errors) and returns
+  `declared_version`, `evidence` citations, `proposal`, and `rationale`.
+  Citations are verified against the real tool results, not model claims.
+- The grounding gate and one-bounded-retry `needs_human_review` handoff are
+  unchanged; `propose_upgrade` keeps its function contract.
+
+### Verification results
+```
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py -q
+101 passed in ~6s
+$ python tests/diagnose_phases.py   # real qwen3:4b
+Phase 1 returns valid tool-call JSON; model repeats list_files and never
+requests the reads; anti-loop guard stops the loop; grounding fails honestly.
+$ python tests/live_staging_check.py  # ONE real recovery
+Attempt 1 (fault injection) QA-rejected; Attempt 2 needs_human_review with
+verification=None/qa=None; export and timing preserved. No corrected-patch
+installation reached.
+```
+
+### Files changed this checkpoint
+- `tests/test_grounded_live.py` — mock `run_incident` in live-progress tests;
+  scripted two-phase mocks for the grounding suite; suite now ~6s.
+- `app/engineer_agent.py` — two-phase tool-loop + findings protocol, bounded
+  turn loop with anti-repeat guard.
+- `tests/diagnose_phases.py` — new live diagnostic script (real model,
+  prints per-turn raw responses).
+
+### Status after checkpoint 6
+- Slow tests fixed; mock suite verified fast and green (101 passed).
+- Two-phase protocol implemented and mock-verified.
+- Live run performed once; grounding failure preserved with exact reason
+  (model repeats `list_files`, never reads source/requirements). This is a
+  model-behavior limit of the local qwen3:4b under the current prompts, not
+  a protocol bug: Python correctly refuses fabricated evidence and hands off
+  with no installation.
+- No model downloads, dashboard redesign, outside source copying, publishing,
+  or external deployment.
+- Paused after logging.
+
+## Checkpoint 7 — deterministic orchestrator-selected evidence collection
+
+Replaced the model-driven tool loop (which the local qwen3:4b could not
+drive reliably — it repeated `list_files` and never requested the reads)
+with a transparent, deterministic evidence-collection step, without
+weakening any evidence gate.
+
+### Protocol (`app/engineer_agent.py`)
+- **Orchestrator-selected evidence collection**: `_collect_evidence()` reads
+  the two known fixture targets through the existing restricted read-only
+  tools (`app/eng_tools.read_file`): `requirements-affected.txt` (affected
+  dependency declaration) and `main.py` (relevant application source). The
+  selection is fixed file names only — findings, citations, and the
+  remediation version are never hardcoded. Each executed read records the
+  tool call, its actual result, and the numbered contents. Every read is
+  labeled `selected_by: "orchestrator (deterministic evidence collection,
+  not model-selected tool calls)"` in the investigation record.
+- **Model interpretation**: a single model call receives the recorded reads
+  with numbered contents and returns `declared_version`, `applicability`,
+  `uncertainty`, evidence citations, a proposal, and a rationale. Citations
+  are validated against the recorded numbered contents — fabricated or
+  out-of-range citations are rejected.
+- **The repeated-listing tool loop is removed** along with the anti-repeat
+  guard; `MAX_TOOL_TURNS` is gone. No new tools, no model change.
+- **Unchanged safeguards**: mandatory grounding gate (source + declaration
+  read, declared version must match the pin, non-empty verified evidence
+  from both files), citation validation, one bounded retry, honest
+  `needs_human_review` handoff with `proposal=None`, boundary validation,
+  declared-vs-installed distinction preserved (declared 3.1.2 in the
+  declaration; installed version only ever comes from the isolated
+  runner's inspection).
+
+### Mock tests (`tests/test_grounded_live.py`, rewritten)
+New/updated coverage of exactly the requested cases, all with mocked
+models and real fixture reads:
+- evidence-read failure (missing file) recorded as a collection problem →
+  grounding fails → handoff with no installer call
+- fabricated citation (file never collected) rejected
+- out-of-range line citation rejected
+- missing application-source evidence fails the gate
+- empty evidence, wrong declared version, malformed model output (response
+  not a JSON object) → handoff
+- evidence-read failure blocks installation in the workflow
+- successful grounded interpretation passes, records numbered contents,
+  and prompts the model with the real numbered lines
+- declared vs installed/patch version distinction asserted
+- bounded retry-then-pass; model error handoff; collected reads recorded
+- eng_tools boundary tests unchanged; live-progress endpoint tests unchanged
+
+Preserved acceptance suites: `tests/test_mock_acceptance.py` (60) and
+`tests/test_staging.py` (16) untouched and passing.
+
+### Verification results
+```
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py -q
+106 passed in 6.20s
+
+$ python tests/live_staging_check.py   # ONE bounded real recovery
+Incident dea2bd9e-89b6-4055-aa96-b6205df515d3, wall 42.2s
+  Attempt 1 (fault injection): jinja2==3.1.2, rc=1, failures=2, QA=False (bad patch rejected)
+  Attempt 2 (model): jinja2==3.1.4, rc=0, failures=0, QA=True
+    files_read: ['requirements-affected.txt', 'main.py']
+    declared: 3.1.2 / 3.1.2 — grounding_problems: None, citation_problems: []
+Approval: True. Staging release: True (port 51598), health jinja2==3.1.4
+MarkupSafe==2.1.5, smoke all-true; duplicate release rejected; stop confirmed;
+export preserves staging events [release_succeeded, release_failed, stop].
+[LIVE STAGING PASS]
+```
+
+Model interpretation from the live run (not hardcoded — model output):
+- applicability: applies — declared 3.1.2 is below both patch levels.
+- uncertainty: exact failure conditions not fully detailed in the evidence.
+- evidence: requirements-affected.txt:4 (pin), main.py:10 (xmlattr on user keys).
+Export preserved: `elapsed_alert_to_tested_patch_ms` 40345.29, verified_patch
+jinja2==3.1.4 artifact sha256 e01113fd18eb4942…, requirements diff
+`-jinja2==3.1.2 / +jinja2==3.1.4`.
+
+### Files changed this checkpoint
+- `app/engineer_agent.py` — deterministic evidence collection + single
+  interpretation call; tool loop removed.
+- `tests/test_grounded_live.py` — rewritten for the new protocol with the
+  requested failure cases.
+- `tests/diagnose_phases.py` — deleted (superseded by the deterministic
+  collection; no longer needed).
+- `MEL_WORK_LOG.md` — this entry.
+
+### Status after checkpoint 7
+- Grounded investigation reliable: the evidence reads are deterministic and
+  recorded with numbered contents; the model only interprets.
+- One bounded real recovery completed end-to-end: bad-patch rejection →
+  grounded corrected patch → tests → approval → local staging
+  health/smoke → stop → export preserved.
+- No models changed, no tools added, no redesign, no publishing, no
+  external deployment. Paused after commit.

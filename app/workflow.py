@@ -137,6 +137,25 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
             engineer = engineer_fn(ADVISORY_CONTEXT, previous_rejection)
             engineer["fault_injection"] = False
 
+        # Grounding failure: engineer returns needs_human_review with
+        # proposal=None. Stop the loop immediately — no installation,
+        # approval, or release can follow.
+        if engineer.get("investigation", {}).get("needs_human_review"):
+            attempt = {"attempt": attempt_num, "engineer": engineer,
+                       "verification": None, "qa": None}
+            incident["attempts"].append(attempt)
+            incident["events"].append({"agent": "engineer", **engineer})
+            incident["events"].append({
+                "agent": "workflow", "action": "needs_human_review",
+                "reason": engineer.get("reason", "Grounding failed."),
+                "utc_timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            incident["status"] = "needs_human_review"
+            incident["reason"] = engineer.get("reason", "Grounding failed.")
+            incident["elapsed_alert_to_tested_patch_ms"] = round(
+                (time.monotonic() - monotonic_start) * 1000, 2)
+            return incident
+
         proposal = engineer.get("proposal")
         version = _validate_proposal(proposal, trusted_scenario=bool(engineer.get("fault_injection")))
 

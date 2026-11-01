@@ -26,7 +26,7 @@ def call_model(system_prompt: str, user_prompt: str, expect_json: bool = True, t
         "format": "json" if expect_json else None,
         "prompt": prompt,
         "stream": False,
-        "options": {"num_predict": 256, "temperature": 0.0},
+        "options": {"num_predict": 1024, "temperature": 0.0},
     }
 
     start = time.perf_counter()

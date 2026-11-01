@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -35,6 +36,9 @@ if os.path.isdir(static_dir):
 _incidents: dict = {}
 _incident_locks: dict = {}
 _store_lock = threading.Lock()
+
+# Live-progress tracking for background workflows.
+_running_workflows: dict = {}  # incident_id -> True while running
 
 
 def _get_lock(incident_id: str) -> threading.Lock:
@@ -103,7 +107,85 @@ def sentry_classify():
 
 @app.post("/workflow")
 def workflow():
-    """Run the full Sentry → Engineer → QA incident workflow."""
+    """Start the full incident workflow in the background.
+
+    Returns immediately with the incident id and a 'running' status.
+    Poll /workflow/status/{id} for live progress.
+    Duplicate-submission guard: if a workflow is already running, returns
+    the existing incident id instead of starting a new one.
+    """
+    with _store_lock:
+        # Duplicate guard: if any workflow is already running, return it.
+        for inc_id, running in _running_workflows.items():
+            if running:
+                return {"id": inc_id, "status": "running",
+                        "message": "A workflow is already running. Poll /workflow/status/"
+                                   + inc_id + " for progress."}
+
+    incident_id = str(uuid.uuid4())
+    # Pre-register the incident so status polling works immediately.
+    placeholder = {
+        "id": incident_id,
+        "status": "running",
+        "events": [],
+        "attempts": [],
+        "log_key": "actionable",
+    }
+    with _store_lock:
+        _incidents[incident_id] = placeholder
+        _running_workflows[incident_id] = True
+
+    def _run():
+        try:
+            incident = run_incident(log_key="actionable", fault_inject_first=True)
+            incident["id"] = incident_id  # keep the pre-registered id
+            with _store_lock:
+                _incidents[incident_id] = incident
+        except Exception as exc:
+            with _store_lock:
+                _incidents[incident_id] = {
+                    "id": incident_id, "status": "error",
+                    "error": str(exc), "events": [], "attempts": [],
+                }
+        finally:
+            with _store_lock:
+                _running_workflows.pop(incident_id, None)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return {"id": incident_id, "status": "running",
+            "message": "Workflow started. Poll /workflow/status/" + incident_id}
+
+
+@app.get("/workflow/status/{incident_id}")
+def workflow_status(incident_id: str):
+    """Poll the live progress of a running or completed workflow."""
+    with _store_lock:
+        running = _running_workflows.get(incident_id, False)
+        incident = _incidents.get(incident_id)
+    if not incident:
+        return {"error": "Incident not found", "incident_id": incident_id}
+    # Summarize current progress from events.
+    events = incident.get("events", [])
+    agents_seen = []
+    for e in events:
+        a = e.get("agent")
+        if a and a not in agents_seen:
+            agents_seen.append(a)
+    return {
+        "incident_id": incident_id,
+        "status": incident.get("status", "unknown"),
+        "running": running,
+        "agents_completed": agents_seen,
+        "attempt_count": len(incident.get("attempts", [])),
+        "event_count": len(events),
+    }
+
+
+@app.post("/workflow-sync")
+def workflow_sync():
+    """Run the full workflow synchronously (for tests and live checks)."""
     incident = run_incident(log_key="actionable", fault_inject_first=True)
     with _store_lock:
         _incidents[incident["id"]] = incident
@@ -237,6 +319,8 @@ def index():
   <button id="triageAmbiguous">Triage ambiguous</button>
   <button id="approveBtn" disabled>Approve verified patch</button>
   <button id="deployBtn" disabled>Simulate deployment</button>
+  <button id="stagingReleaseBtn" disabled>Release to staging</button>
+  <button id="stagingStopBtn" disabled>Stop staging</button>
   <button id="downloadBtn" disabled>Download evidence JSON</button>
 </div>
 
@@ -273,6 +357,8 @@ const detail = document.getElementById('detail');
 const approveBtn = document.getElementById('approveBtn');
 const deployBtn = document.getElementById('deployBtn');
 const downloadBtn = document.getElementById('downloadBtn');
+const stagingReleaseBtn = document.getElementById('stagingReleaseBtn');
+const stagingStopBtn = document.getElementById('stagingStopBtn');
 const runWorkflowBtn = document.getElementById('runWorkflow');
 
 function setRunning(v) {
@@ -294,10 +380,14 @@ function collapsible(title, content) {
 function statusLabel(status) {
   const labels = {
     'tested_patch_awaiting_human_approval': 'Awaiting human approval',
-    'human_approved': 'Human approved — ready for simulated deployment',
+    'human_approved': 'Human approved — ready for staging',
     'simulated_deployed': 'Complete: simulated deployment recorded (simulation only)',
+    'staging_released': 'Staging released (real local staging on 127.0.0.1)',
     'blocked': 'Blocked: incident did not qualify for auto-remediation',
-    'remediation_failed': 'Remediation failed: all attempts rejected by QA'
+    'remediation_failed': 'Remediation failed: all attempts rejected by QA',
+    'needs_human_review': 'Grounding failed — handed to human review. No installation, approval, or release followed.',
+    'running': 'Workflow running…',
+    'error': 'Workflow error'
   };
   return labels[status] || status;
 }
@@ -313,15 +403,19 @@ function renderTimeline(d) {
     { key: 'engineer', label: 'Engineer' },
     { key: 'qa', label: 'QA' },
     { key: 'human', label: 'Human' },
+    { key: 'staging', label: 'Staging' },
     { key: 'deployment_simulator', label: 'Simulated deployment' }
   ];
   const events = d.events || [];
   const hasHuman = events.some(e => e.agent === 'human' && e.action === 'approval');
   const hasSim = events.some(e => e.agent === 'deployment_simulator');
+  const hasStaging = events.some(e => e.agent === 'staging');
+  const stagingReleased = d.staging_release && d.staging_release.released;
   const qaApproved = (d.attempts || []).some(a => a.qa && a.qa.approval);
   const firstEng = events.find(e => e.agent === 'engineer');
   const blocked = d.status === 'blocked';
   const failed = d.status === 'remediation_failed';
+  const needsReview = d.status === 'needs_human_review';
 
   timeline.innerHTML = steps.map(s => {
     let cls = 'pending';
@@ -332,12 +426,13 @@ function renderTimeline(d) {
     }
     if (s.key === 'engineer') {
       if (!firstEng) { cls = 'pending'; state = 'Not run'; }
+      else if (needsReview) { cls = 'blocked'; state = 'Grounding failed — human review'; }
       else if (failed) { cls = 'blocked'; state = 'All attempts rejected'; }
       else if (firstEng.fault_injection) { cls = 'blocked'; state = 'Recovered after rejected attempt'; }
       else { cls = 'active'; state = 'Proposal submitted'; }
     }
     if (s.key === 'qa') {
-      if (!firstEng) { cls = 'pending'; state = 'Not run'; }
+      if (!firstEng || needsReview) { cls = 'pending'; state = 'Not run'; }
       else if (qaApproved) { cls = 'active'; state = 'Verified: version + tests passed'; }
       else { cls = 'blocked'; state = 'Rejected patch'; }
     }
@@ -345,6 +440,11 @@ function renderTimeline(d) {
       if (hasHuman) { cls = 'active'; state = 'Approved'; }
       else if (qaApproved) { cls = 'pending'; state = 'Awaiting approval'; }
       else { cls = 'blocked'; state = 'Not eligible'; }
+    }
+    if (s.key === 'staging') {
+      if (stagingReleased) { cls = 'active'; state = 'Released on 127.0.0.1:' + (d.staging_release.port || '?'); }
+      else if (hasHuman) { cls = 'pending'; state = 'Ready to release'; }
+      else { cls = 'pending'; state = 'Awaiting approval'; }
     }
     if (s.key === 'deployment_simulator') {
       if (hasSim) { cls = 'active'; state = 'Simulated (no real deployment)'; }
@@ -360,26 +460,51 @@ function renderTimeline(d) {
   let metricsHtml = `<p><strong>Alert-to-tested-patch:</strong> ${esc(formatMs(alertToTested))}</p>`;
   if (d.verified_patch) metricsHtml += `<p><strong>Verified patch:</strong> ${esc(d.verified_patch.package)}==${esc(d.verified_patch.version)} (artifact sha256: ${esc(String(d.verified_patch.artifact_sha256 || '').slice(0, 16))}…)</p>`;
   if (approvalTs) metricsHtml += `<p><strong>Human approval at:</strong> ${esc(new Date(approvalTs).toLocaleTimeString())}</p>`;
+  if (d.staging_release) metricsHtml += `<p><strong>Staging release:</strong> port ${esc(d.staging_release.port)}, version ${esc(d.staging_release.version)} ${d.staging_release.running ? '(running)' : '(stopped)'}</p>`;
   if (simTs) metricsHtml += `<p><strong>Simulated deployment at:</strong> ${esc(new Date(simTs).toLocaleTimeString())} (simulation only)</p>`;
-  if (d.status === 'blocked' || d.status === 'remediation_failed') metricsHtml += `<p class="error">${esc(d.reason || '')}</p>`;
+  if (d.status === 'blocked' || d.status === 'remediation_failed' || d.status === 'needs_human_review') metricsHtml += `<p class="error">${esc(d.reason || '')}</p>`;
   metrics.innerHTML = metricsHtml;
 
   let detailHtml = '';
   for (const a of d.attempts || []) {
     detailHtml += `<h3>Attempt ${esc(a.attempt)} ${a.engineer.fault_injection ? '<span class="badge">FAULT INJECTION</span>' : ''}</h3>`;
-    detailHtml += `<p><strong>Proposal:</strong> ${esc(a.engineer.proposal?.package)}==${esc(a.engineer.proposal?.version)}</p>`;
-    detailHtml += `<p><strong>Installed:</strong> ${esc(a.verification?.installed_version)}</p>`;
-    detailHtml += `<p><strong>Installer invoked:</strong> ${a.verification?.installer_invoked ? 'yes' : 'no — rejected at boundary'}</p>`;
-    detailHtml += `<p><strong>QA approval:</strong> ${a.qa?.approval ? '<span class="ok">APPROVED</span>' : '<span class="error">REJECTED</span>'}</p>`;
-    detailHtml += `<p><strong>QA reason:</strong> ${esc(a.qa?.reason)}</p>`;
-    detailHtml += collapsible('Deterministic checks', a.qa?.deterministic_checks);
-    detailHtml += collapsible('JUnit structured results', a.verification?.junit);
-    detailHtml += collapsible('Full test output', a.verification?.test_output || '');
+    if (a.engineer.investigation) {
+      const inv = a.engineer.investigation;
+      detailHtml += `<p><strong>Files read:</strong> ${esc((inv.files_read || []).join(', ') || 'none')}</p>`;
+      detailHtml += `<p><strong>Declared version:</strong> ${esc(inv.declared_version || 'N/A')} (fixture: ${esc(inv.fixture_declared_version || 'N/A')})</p>`;
+      if (inv.tool_calls && inv.tool_calls.length > 0) {
+        detailHtml += collapsible('Tool calls', inv.tool_calls.map(tc => tc.tool + '(' + JSON.stringify(tc.args) + ') → ' + JSON.stringify(tc.result).slice(0, 200)));
+      }
+      if (inv.evidence && inv.evidence.length > 0) {
+        detailHtml += collapsible('Evidence citations', inv.evidence);
+      }
+      if (inv.citation_problems && inv.citation_problems.length > 0) {
+        detailHtml += `<p class="error">Citation problems: ${esc(inv.citation_problems.join('; '))}</p>`;
+      }
+      if (inv.grounding_problems) {
+        detailHtml += `<p class="error">Grounding problems: ${esc(inv.grounding_problems.join('; '))}</p>`;
+      }
+    }
+    if (a.verification) {
+      detailHtml += `<p><strong>Proposal:</strong> ${esc(a.engineer.proposal?.package)}==${esc(a.engineer.proposal?.version)}</p>`;
+      detailHtml += `<p><strong>Installed:</strong> ${esc(a.verification?.installed_version)}</p>`;
+      detailHtml += `<p><strong>Installer invoked:</strong> ${a.verification?.installer_invoked ? 'yes' : 'no — rejected at boundary'}</p>`;
+      detailHtml += `<p><strong>QA approval:</strong> ${a.qa?.approval ? '<span class="ok">APPROVED</span>' : '<span class="error">REJECTED</span>'}</p>`;
+      detailHtml += `<p><strong>QA reason:</strong> ${esc(a.qa?.reason)}</p>`;
+      detailHtml += collapsible('Deterministic checks', a.qa?.deterministic_checks);
+      detailHtml += collapsible('JUnit structured results', a.verification?.junit);
+      detailHtml += collapsible('Full test output', a.verification?.test_output || '');
+    } else if (a.engineer.investigation && a.engineer.investigation.needs_human_review) {
+      detailHtml += `<p class="error">Grounding failed after the bounded retry — handed to human review. No installation, approval, or release followed.</p>`;
+    }
     if (a.engineer.raw) detailHtml += collapsible('Raw Engineer model response', a.engineer.raw);
     if (a.qa && a.qa.raw) detailHtml += collapsible('Raw QA model response', a.qa.raw);
   }
   if (d.human_approval) {
     detailHtml += `<h3>Human approval</h3><pre>${esc(JSON.stringify(d.human_approval, null, 2))}</pre>`;
+  }
+  if (d.staging_release) {
+    detailHtml += `<h3>Staging release</h3><pre>${esc(JSON.stringify(d.staging_release, null, 2))}</pre>`;
   }
   if (d.simulated_deployment) {
     detailHtml += `<h3>Simulated deployment</h3><pre>${esc(JSON.stringify(d.simulated_deployment, null, 2))}</pre>`;
@@ -393,27 +518,40 @@ async function runWorkflow() {
   setRunning(true);
   out.innerHTML = '';
   progressBox.style.display = 'block';
-  progressText.textContent = 'Running Sentry → Engineer → QA workflow (this may take ~20–30 seconds with local Ollama)...';
+  progressText.textContent = 'Starting workflow…';
   timelineBox.style.display = 'none';
   detailBox.style.display = 'none';
   approveBtn.disabled = true;
   deployBtn.disabled = true;
   downloadBtn.disabled = true;
+  stagingReleaseBtn.disabled = true;
+  stagingStopBtn.disabled = true;
 
   try {
-    const d = await fetchJson('/workflow', 'POST');
-    currentIncidentId = d.id;
-    timelineBox.style.display = 'block';
-    renderTimeline(d);
-    progressText.textContent = `Workflow complete: ${esc(statusLabel(d.status))}`;
+    const start = await fetchJson('/workflow', 'POST');
+    currentIncidentId = start.id;
+    progressText.textContent = 'Running Sentry → Engineer → QA workflow (this may take ~20–40 seconds with local Ollama)...';
 
-    if (d.status === 'tested_patch_awaiting_human_approval') {
-      approveBtn.disabled = false;
-    }
-    downloadBtn.disabled = false;
+    const poll = async () => {
+      const st = await fetchJson('/workflow/status/' + currentIncidentId);
+      if (st.running) {
+        progressText.textContent = 'Running… agents: ' + esc((st.agents_completed || []).join(' → ')) + ' (' + st.event_count + ' events)';
+        setTimeout(poll, 2000);
+      } else {
+        const d = await fetchJson('/incident/' + currentIncidentId);
+        timelineBox.style.display = 'block';
+        renderTimeline(d);
+        progressText.textContent = `Workflow complete: ${esc(statusLabel(d.status))}`;
+        if (d.status === 'tested_patch_awaiting_human_approval') {
+          approveBtn.disabled = false;
+        }
+        downloadBtn.disabled = false;
+        setRunning(false);
+      }
+    };
+    setTimeout(poll, 2000);
   } catch (e) {
     progressText.textContent = 'Workflow failed: ' + esc(e.message);
-  } finally {
     setRunning(false);
   }
 }
@@ -430,6 +568,7 @@ approveBtn.addEventListener('click', async () => {
   progressText.textContent = 'Current status: ' + statusLabel(inc.status);
   if (d.approved) {
     deployBtn.disabled = false;
+    stagingReleaseBtn.disabled = false;
     approveBtn.disabled = true;
   }
 });
@@ -446,6 +585,37 @@ deployBtn.addEventListener('click', async () => {
   progressText.textContent = 'Current status: ' + statusLabel(inc.status);
   if (d.simulated) {
     deployBtn.disabled = true;
+  }
+});
+
+stagingReleaseBtn.addEventListener('click', async () => {
+  if (!currentIncidentId) return;
+  const d = await fetchJson(`/incident/${currentIncidentId}/staging-release`, 'POST');
+  const msg = document.createElement('p');
+  msg.className = d.released ? 'ok' : 'error';
+  msg.textContent = d.released ? 'Staging released on 127.0.0.1:' + d.port : 'Staging rejected: ' + d.error;
+  out.appendChild(msg);
+  const inc = await fetchJson(`/incident/${currentIncidentId}`);
+  renderTimeline(inc);
+  progressText.textContent = 'Current status: ' + statusLabel(inc.status);
+  if (d.released) {
+    stagingReleaseBtn.disabled = true;
+    stagingStopBtn.disabled = false;
+  }
+});
+
+stagingStopBtn.addEventListener('click', async () => {
+  if (!currentIncidentId) return;
+  const d = await fetchJson(`/incident/${currentIncidentId}/staging-stop`, 'POST');
+  const msg = document.createElement('p');
+  msg.className = d.stopped ? 'ok' : 'error';
+  msg.textContent = d.stopped ? 'Staging stopped.' : 'Stop failed: ' + d.error;
+  out.appendChild(msg);
+  const inc = await fetchJson(`/incident/${currentIncidentId}`);
+  renderTimeline(inc);
+  if (d.stopped) {
+    stagingStopBtn.disabled = true;
+    stagingReleaseBtn.disabled = false;
   }
 });
 

@@ -37,21 +37,43 @@ def main():
         print("[FAIL] Server not reachable at", BASE)
         return 1
 
-    print("Running ONE live workflow (real model + disposable venv install)…")
+    print("Starting live workflow (real model + disposable venv install)…")
     start = time.perf_counter()
-    incident = post("/workflow")
-    wall = time.perf_counter() - start
-    print(f"Workflow wall time: {wall:.1f}s (state={incident['status']})")
-    inc_id = incident["id"]
+    start_resp = post("/workflow")
+    inc_id = start_resp["id"]
     print("Incident ID:", inc_id)
-    print("Status:", incident["status"])
+    print("Status: running (background)")
+
+    # Poll for completion.
+    for _ in range(120):
+        st = get(f"/workflow/status/{inc_id}")
+        if not st.get("running"):
+            break
+        time.sleep(2)
+    else:
+        print("[FAIL] Workflow did not complete within 240s.")
+        return 1
+
+    wall = time.perf_counter() - start
+    incident = get(f"/incident/{inc_id}")
+    print(f"Workflow wall time: {wall:.1f}s (state={incident['status']})")
     for a in incident.get("attempts", []):
-        eng, ver, qa = a["engineer"], a["verification"], a["qa"]
-        print(f"  Attempt {a['attempt']}: {eng['proposal']['package']}"
-              f"=={eng['proposal']['version']} "
+        eng = a["engineer"]
+        ver = a.get("verification") or {}
+        qa = a.get("qa") or {}
+        prop = eng.get("proposal") or {}
+        print(f"  Attempt {a['attempt']}: "
+              f"{prop.get('package','?')}"
+              f"=={prop.get('version','?')} "
               f"rc={ver.get('pytest_returncode')} "
-              f"failures={ver.get('junit', {}).get('failures')} "
+              f"failures={ver.get('junit',{}).get('failures')} "
               f"QA={qa.get('approval')}")
+        if eng.get("investigation"):
+            inv = eng["investigation"]
+            print(f"    files_read: {inv.get('files_read')}")
+            print(f"    declared: {inv.get('declared_version')} / {inv.get('fixture_declared_version')}")
+            print(f"    grounding_problems: {inv.get('grounding_problems')}")
+            print(f"    citation_problems: {inv.get('citation_problems')}")
     if incident["status"] != "tested_patch_awaiting_human_approval":
         print("[FAIL] Workflow did not produce an approvable patch.")
         return 1
