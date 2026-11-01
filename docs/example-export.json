@@ -1,0 +1,174 @@
+{
+  "_sanitization_note": "Sanitized example export for submission. Structure and field semantics match the real /export/{incident_id} response from the recorded successful live run (see MEL_WORK_LOG.md checkpoint 7). The incident id, timestamps, ports, and hash values are placeholders (marked 'example'); file contents shown are the actual synthetic fixture files, which are already public in this repository. No secrets, personal paths, or private session data appear here.",
+  "evidence_disclaimer": "Raw model responses (fields named 'raw') are model-generated text preserved as evidence. They are NOT validated security facts. Validated facts are in 'advisory_metadata' (sourced from GitHub Security Advisories), deterministic check fields, and the JUnit structured results. Jinja2 3.1.4 is a historical target for the named advisories (CVE-2024-22195, CVE-2024-34064); it is not asserted to be a currently secure release. All incident inputs are synthetic; exploitability is unverified.",
+  "incident": {
+    "id": "00000000-0000-4000-8000-000000000000 (example)",
+    "status": "staging_released",
+    "log_key": "actionable",
+    "advisory_metadata": {
+      "advisories": ["GHSA-h5c8-rqwp-cp95 (CVE-2024-22195)", "GHSA-h75v-3vvj-5mfj (CVE-2024-34064)"],
+      "affected_package": "jinja2",
+      "affected_range": "< 3.1.4",
+      "patch_versions": ["3.1.3", "3.1.4"],
+      "severity": "MODERATE"
+    },
+    "elapsed_alert_to_tested_patch_ms": 40345.29,
+    "attempts": [
+      {
+        "attempt": 1,
+        "engineer": {
+          "proposal": {"package": "jinja2", "version": "3.1.2", "reason": "fault-injected first attempt (orchestrator-injected, not a model decision)"},
+          "fault_injection": true
+        },
+        "verification": {
+          "install_ok": true,
+          "version_inspection_ok": true,
+          "installed_version": "3.1.2",
+          "proposed_version": "3.1.2",
+          "pytest_returncode": 1,
+          "junit": {
+            "tests": {
+              "test_render_greeting_escapes_html": "passed",
+              "test_xmlattr_renders_normal_attributes": "passed",
+              "test_xmlattr_rejects_space_in_key": "failed",
+              "test_xmlattr_rejects_slash_in_key": "failed"
+            },
+            "total": 4, "failures": 2, "errors": 0, "skipped": 0
+          },
+          "required_tests_ok": false,
+          "success": false,
+          "installer_invoked": true,
+          "requirements_validated": true
+        },
+        "qa": {"approval": false, "reason": "deterministic verification failed: affected version installed and required tests failed"}
+      },
+      {
+        "attempt": 2,
+        "engineer": {
+          "proposal": {"package": "jinja2", "version": "3.1.4", "reason": "3.1.4 is the earliest allowlisted version addressing both advisories."},
+          "fault_injection": false,
+          "investigation": {
+            "evidence_collection": {
+              "selected_by": "orchestrator (deterministic evidence collection, not model-selected tool calls)",
+              "targets": ["requirements-affected.txt", "main.py"],
+              "problems": []
+            },
+            "tool_calls": [
+              {
+                "tool": "read_file",
+                "args": {"path": "requirements-affected.txt"},
+                "purpose": "affected dependency declaration",
+                "selected_by": "orchestrator (deterministic evidence collection, not model-selected tool calls)",
+                "result": {"file": "requirements-affected.txt", "content": "# Intentionally vulnerable Jinja2 versions for demo.\n# GHSA-h5c8-rqwp-cp95 (CVE-2024-22195) affects < 3.1.3\n# GHSA-h75v-3vvj-5mfj (CVE-2024-34064) affects < 3.1.4\njinja2==3.1.2\nMarkupSafe>=2.0"},
+                "numbered_content": {
+                  "1": "# Intentionally vulnerable Jinja2 versions for demo.",
+                  "2": "# GHSA-h5c8-rqwp-cp95 (CVE-2024-22195) affects < 3.1.3",
+                  "3": "# GHSA-h75v-3vvj-5mfj (CVE-2024-34064) affects < 3.1.4",
+                  "4": "jinja2==3.1.2",
+                  "5": "MarkupSafe>=2.0"
+                }
+              },
+              {
+                "tool": "read_file",
+                "args": {"path": "main.py"},
+                "purpose": "relevant application source",
+                "selected_by": "orchestrator (deterministic evidence collection, not model-selected tool calls)",
+                "result": {"file": "main.py", "content": "\"\"\"Minimal synthetic app used by Night Shift QA regression tests.\n\nTests the dependency patching workflow, not business logic.\n\"\"\"\nfrom jinja2 import Environment, select_autoescape, PackageLoader\n\n\ndef render_attrs(user_keys: dict) -> str:\n    \"\"\"Render HTML attributes using Jinja2's xmlattr filter.\"\"\"\n    env = Environment(autoescape=select_autoescape([\"html\", \"xml\"]))\n    template = env.from_string('<div{{ attrs|xmlattr }}></div>')\n    return template.render(attrs=user_keys)\n\n\ndef render_greeting(name: str) -> str:\n    env = Environment(autoescape=select_autoescape([\"html\", \"xml\"]))\n    template = env.from_string(\"<p>Hello, {{ name }}!</p>\")\n    return template.render(name=name)\n\n\nif __name__ == \"__main__\":\n    print(render_greeting(\"Night Shift\"))"},
+                "numbered_content": {
+                  "1": "\"\"\"Minimal synthetic app used by Night Shift QA regression tests.",
+                  "2": "",
+                  "3": "Tests the dependency patching workflow, not business logic.",
+                  "4": "\"\"\"",
+                  "5": "from jinja2 import Environment, select_autoescape, PackageLoader",
+                  "6": "",
+                  "7": "",
+                  "8": "def render_attrs(user_keys: dict) -> str:",
+                  "9": "    \"\"\"Render HTML attributes using Jinja2's xmlattr filter.\"\"\"",
+                  "10": "    env = Environment(autoescape=select_autoescape([\"html\", \"xml\"]))",
+                  "11": "    template = env.from_string('<div{{ attrs|xmlattr }}></div>')",
+                  "12": "    return template.render(attrs=user_keys)",
+                  "13": "",
+                  "14": "",
+                  "15": "def render_greeting(name: str) -> str:",
+                  "16": "    env = Environment(autoescape=select_autoescape([\"html\", \"xml\"]))",
+                  "17": "    template = env.from_string(\"<p>Hello, {{ name }}!</p>\")",
+                  "18": "    return template.render(name=name)",
+                  "19": "",
+                  "20": "",
+                  "21": "if __name__ == \"__main__\":",
+                  "22": "    print(render_greeting(\"Night Shift\"))"
+                }
+              }
+            ],
+            "files_read": ["requirements-affected.txt", "main.py"],
+            "declared_version": "3.1.2",
+            "fixture_declared_version": "3.1.2",
+            "evidence": [
+              {"file": "requirements-affected.txt", "line": 4, "finding": "Jinja2 version pinned to 3.1.2 in the dependency declaration"},
+              {"file": "main.py", "line": 10, "finding": "Uses Jinja2's xmlattr filter to render HTML attributes, which is vulnerable to the described CVEs"}
+            ],
+            "citation_problems": [],
+            "grounding_problems": null,
+            "needs_human_review": false,
+            "applicability": "The advisory applies to this application because the declared Jinja2 version (3.1.2) is vulnerable to both CVE-2024-22195 and CVE-2024-34064 as it is below the required patch levels (3.1.3 and 3.1.4 respectively).",
+            "uncertainty": "The exact test failures observed in the application indicate that the current version (3.1.2) does not handle certain invalid characters in XML attribute keys correctly, but the specific failure conditions are not fully detailed in the evidence."
+          }
+        },
+        "verification": {
+          "install_ok": true,
+          "version_inspection_ok": true,
+          "installed_version": "3.1.4",
+          "proposed_version": "3.1.4",
+          "pytest_returncode": 0,
+          "junit": {
+            "tests": {
+              "test_render_greeting_escapes_html": "passed",
+              "test_xmlattr_renders_normal_attributes": "passed",
+              "test_xmlattr_rejects_space_in_key": "passed",
+              "test_xmlattr_rejects_slash_in_key": "passed"
+            },
+            "total": 4, "failures": 0, "errors": 0, "skipped": 0
+          },
+          "required_tests_ok": true,
+          "success": true,
+          "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000 (example)",
+          "manifest": {
+            "digest": "0000000000000000000000000000000000000000000000000000000000000000 (example)",
+            "files": {
+              "app/main.py": "…hash (example)",
+              "app/pytest.ini": "…hash (example)",
+              "app/test_regression.py": "…hash (example)",
+              "requirements-original.txt": "…hash (example)",
+              "requirements-proposed.txt": "…hash (example)",
+              "requirements.diff": "…hash (example)"
+            }
+          },
+          "installer_invoked": true,
+          "requirements_validated": true
+        },
+        "qa": {"approval": true, "reason": "all deterministic checks passed: exact pin installed, version inspected, required tests 4/4"}
+      }
+    ],
+    "verified_patch": {
+      "package": "jinja2",
+      "version": "3.1.4",
+      "artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000 (example)",
+      "requirements_diff": "--- requirements-original.txt (affected: jinja2 3.1.2)\n+++ requirements-proposed.txt\n-jinja2==3.1.2\n+jinja2==3.1.4\n MarkupSafe==2.1.5"
+    },
+    "human_approval": {
+      "actor": "human",
+      "approved": true,
+      "note": "approval recorded for the verified patch; unauthenticated local-demo control",
+      "utc_timestamp": "2026-11-01T04:33:00+00:00 (example)"
+    },
+    "staging_release": {
+      "released": true,
+      "port": 51598,
+      "version": "3.1.4",
+      "health": {"status": "ok", "jinja2": "3.1.4", "MarkupSafe": "2.1.5"},
+      "smoke": {"status": "ok", "checks": {"greeting_escapes_html": true, "xmlattr_rejects_space": true, "xmlattr_rejects_slash": true}},
+      "running": false,
+      "utc_timestamp": "2026-11-01T04:33:11+00:00 (example)"
+    }
+  }
+}

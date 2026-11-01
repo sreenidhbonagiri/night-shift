@@ -1007,3 +1007,69 @@ jinja2==3.1.4 artifact sha256 e01113fd18eb4942…, requirements diff
   health/smoke → stop → export preserved.
 - No models changed, no tools added, no redesign, no publishing, no
   external deployment. Paused after commit.
+
+## Checkpoint 9 — submission materials (no publishing)
+
+### Files created
+- `README.md` — customer problem, agent responsibilities and trust model,
+  orchestrator-selected evidence collection (including the honest history
+  of the model-driven tool-loop failure), setup/run instructions, local
+  staging flow, test commands, limitations, advisory sources, and a
+  provenance section pointing at PROVENANCE.md.
+- `docs/DEMO_OUTLINE.md` — three-minute demo using the actual measured
+  results of the checkpoint-7 live run (42.2 s wall, 40,345.29 ms
+  alert-to-tested-patch, fault-injected attempt 1 rc=1/2 failures,
+  attempt 2 jinja2 3.1.4 4/4, staging health jinja2 3.1.4/MarkupSafe
+  2.1.5, smoke all-true), with explicit on-screen labeling of fault
+  injection and historical remediation and instructions to show any
+  grounding handoff honestly rather than hide it.
+- `docs/SUBMISSION_CHECKLIST.md` — public repo, demo video, Mel-session
+  video/export, work log, test proof, live-run proof, customer-quote
+  permission (none used today), Sunday curveball (rehearse the three
+  deliberate fail-closed paths), and pre-publish final pass. Publishing
+  items are deliberately unchecked.
+- `docs/example-export.json` — sanitized example of the successful run's
+  export: real structure and semantics, real fixture file contents and
+  numbered reads, with example-marked incident id, timestamps, and hashes;
+  sanitization note included.
+- `docs/SUBMISSION_AUDIT.md` — tracked-file audit (below).
+
+### Tracked-file audit findings (no sensitive values exposed)
+- Secrets: none in any tracked file (no keys/tokens/passwords/PEM).
+- Private session records: none tracked; `*.events.jsonl`,
+  `mel-conversation*.json*`, `events/` are gitignored.
+- Environments/caches: none tracked (`.venv/`, `__pycache__/`,
+  `.pytest_cache/` ignored).
+- Runtime artifacts: none tracked; `artifacts/` (41 incident dirs) and
+  `staging/` are gitignored and stay local.
+- Logs: none tracked (`*.log` ignored).
+- Personal paths: only `MEL_WORK_LOG.md` contains `<home>/…`
+  absolute paths — part of the truthful provenance record; publish as-is
+  or rewrite to `~/` in a documented commit (decision left open).
+- Stray temp files: none tracked.
+
+### Provenance and claims
+- PROVENANCE.md states only the permission actually received (returning to
+  the pre-outside-work boundary and finishing in Mel); no organizer
+  acceptance of the submission is claimed anywhere.
+- Git history records Mel-authored commits; the work log records tool
+  contributions (Mel terminal agent only in this tree).
+
+### Verification results (this checkpoint)
+```
+$ python -c "import json; json.load(open('docs/example-export.json'))"
+example-export.json: valid JSON
+$ python -c "from app.main import app"
+app imports OK
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py -q
+106 passed in 6.11s   (26 grounded + 64 acceptance + 16 staging)
+```
+No live package-installing run was performed: this checkpoint adds
+documentation only, and the recorded live evidence from checkpoint 7
+remains the proof.
+
+### Status after checkpoint 9
+- Submission materials prepared; nothing published or deployed.
+- Publishing decisions (repo visibility, license, work-log path wording,
+  customer-quote permission) remain open on the checklist.
+- Paused after commit.
