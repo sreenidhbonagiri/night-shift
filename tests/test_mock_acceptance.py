@@ -572,6 +572,30 @@ class TestWorkflowScenarios(ArtifactTmpBase):
         self.assertEqual(inc["attempts"], [])
         self.assertIsNone(inc["elapsed_alert_to_tested_patch_ms"])
 
+    def test_insufficient_evidence_triage_blocks_approval_and_release(self):
+        """REGRESSION (independently reproduced live failure): when the
+        ambiguous fixture triages to NEEDS_HUMAN_REVIEW (insufficient
+        data), the full chain must hold: zero patch attempts, null
+        alert-to-tested-patch timing, and both approval and release
+        rejected. Nothing downstream can proceed."""
+        inc = self.run_incident(sentry_fn=make_sentry("NEEDS_HUMAN_REVIEW"),
+                                fault_inject_first=False,
+                                engineer_fn=make_engineer(["3.1.4"]))
+        self.assertEqual(inc["status"], "blocked")
+        self.assertEqual(inc["attempts"], [])
+        self.assertIsNone(inc["elapsed_alert_to_tested_patch_ms"])
+
+        # Approval must be rejected — no verified patch exists.
+        ap_res = ap.approve(incident=inc)
+        self.assertFalse(ap_res["approved"])
+        self.assertNotIn("human_approval", inc)
+        self.assertEqual(inc["status"], "blocked")
+
+        # Simulated release must be rejected — no approval exists.
+        deploy_res = ap.simulate_deploy(inc)
+        self.assertFalse(deploy_res["simulated"])
+        self.assertNotIn("simulated_deployment", inc)
+
     def test_model_false_string_rejected(self):
         """A model returning the string 'false' (not JSON false) is malformed
         and never approval."""

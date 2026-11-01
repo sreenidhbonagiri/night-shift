@@ -1,0 +1,30 @@
+{
+  "triage": {
+    "synthetic_input": "[SYNTHETIC] 2024-06-01T12:00:02Z service=payment-gateway level=WARN msg='Possible dependency issue; insufficient data to classify'",
+    "final_disposition": "NEEDS_HUMAN_REVIEW",
+    "model_disposition": "BENIGN",
+    "model_assessed_severity": "INFO",
+    "policy_override": "Insufficient evidence for automatic remediation: the log itself admits insufficient data to classify, so a certainty disposition is unsupported; escalating to human review.",
+    "reason": "The log indicates a possible dependency issue but lacks specific details for classification, which is a common false positive in monitoring systems.",
+    "cited_evidence": [
+      "Possible dependency issue; insufficient data to classify"
+    ],
+    "confidence": 0.95
+  },
+  "workflow": {
+    "status": "blocked",
+    "attempts": 0,
+    "elapsed_alert_to_tested_patch_ms": null,
+    "events": [
+      "sentry"
+    ]
+  },
+  "approval": {
+    "approved": false,
+    "error": "Incident status is 'blocked'; approval is only allowed for a genuinely QA-verified patch."
+  },
+  "release": {
+    "simulated": false,
+    "error": "Simulated deployment requires explicit human approval first."
+  }
+}

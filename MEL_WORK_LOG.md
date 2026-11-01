@@ -1263,9 +1263,69 @@ assertions or canned success.
     is evidence-gated, not scenario-gated, by design. Noted honestly.
 - Remaining failures: none from the five reported areas.
 
-### Status after checkpoint 12
-- All five fixes implemented with regression coverage; mock suites green
-  (140); one bounded live recovery verified end-to-end including live
-  progress, gates, staging health/smoke, stopped state, and export.
-- Committed locally; NOT pushed (per instruction).
+### Clarification: ambiguous live-check result (exact data)
+
+The earlier checkpoint said the ambiguous log "passed" — that was
+imprecise. Exact data from the live model run:
+
+- Synthetic input: `[SYNTHETIC] 2024-06-01T12:00:02Z
+  service=payment-gateway level=WARN msg='Possible dependency issue;
+  insufficient data to classify'`
+- Model raw response: `{"disposition":"BENIGN","severity":"INFO",
+  "operational_priority":"LOW","reason":"The log indicates a possible
+  dependency issue but lacks specific details for classification, which
+  is a common false positive in monitoring systems.",
+  "cited_evidence":["Possible dependency issue; insufficient data to
+  classify"],"confidence":0.95}`
+- Original model disposition: BENIGN
+- Final disposition before the fix: BENIGN (policy_override: null)
+  — this was the failure; expected behavior is NEEDS_HUMAN_REVIEW.
+
+### Fix: insufficient-data fixture must escalate (checkpoint 12 addendum)
+
+The ambiguous fixture's log text itself states "insufficient data to
+classify." The model cited that text as evidence and self-reported
+confidence 0.95, clearing the evidence gate. A certainty disposition
+(BENIGN) on a log that admits insufficient data is unsupported — citing
+the log's own insufficient-data text is circular, not confirmatory.
+
+- `app/sentry_agent.py`: added `INSUFFICIENT_DATA_MARKERS` (insufficient
+  data, unable to classify, unclear, not enough information, etc.).
+  `_evidence_insufficient(parsed, log)` now returns True when the log
+  text contains any marker, regardless of cited evidence or confidence.
+  The policy_override reason is specific: "the log itself admits
+  insufficient data to classify, so a certainty disposition is
+  unsupported; escalating to human review."
+- Regression: `test_benign_on_insufficient_data_log_escalates` and
+  `test_actionable_on_insufficient_data_log_escalates` reproduce the
+  exact live failure (BENIGN/ACTIONABLE on the ambiguous fixture with
+  0.95 confidence and self-cited text → must escalate). Both failed
+  before the fix, pass after.
+- Full-chain regression:
+  `test_insufficient_evidence_triage_blocks_approval_and_release` —
+  NEEDS_HUMAN_REVIEW disposition → blocked status, zero attempts, null
+  alert-to-tested-patch timing, approval rejected, release rejected.
+
+### Live verification (bounded, real model)
+
+`tests/live_ambiguous_check.py` (report: `live_ambiguous_check_report.json`):
+- Real triage on the ambiguous fixture: final NEEDS_HUMAN_REVIEW,
+  model_disposition BENIGN, policy_override recorded, cited_evidence
+  ["Possible dependency issue; insufficient data to classify"],
+  confidence 0.95.
+- Real workflow: status blocked, 0 attempts,
+  elapsed_alert_to_tested_patch_ms null, events ["sentry"].
+- Approval rejected: "Incident status is 'blocked'; approval is only
+  allowed for a genuinely QA-verified patch."
+- Release rejected: "Simulated deployment requires explicit human
+  approval first."
+
+Mock suites: 143 passed (29 grounded + 13 triage + 64 acceptance +
+17 staging + 20 release gates).
+
+### Status after checkpoint 12 (addendum)
+- Ambiguous fixture now escalates to NEEDS_HUMAN_REVIEW with the real
+  model; full downstream chain verified (blocked, zero attempts, null
+  timing, approval/release rejected).
+- Repair commit remains unpushed; new fix committed as an addendum.
 - Paused.

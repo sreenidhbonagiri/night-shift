@@ -77,6 +77,19 @@ ALLOWED_SEVERITIES = {"CRITICAL", "WARNING", "INFO", "NONE"}
 MIN_CITED_EVIDENCE = 1
 MIN_CONFIDENCE = 0.7
 
+# Phrases in a log that signal the source itself admits insufficient
+# data. A disposition of certainty (BENIGN or ACTIONABLE) on such a log
+# is claiming certainty the evidence does not support; citing the log's
+# own insufficient-data text is circular, not confirmatory.
+INSUFFICIENT_DATA_MARKERS = (
+    "insufficient data",
+    "insufficient data to classify",
+    "unable to classify",
+    "cannot classify",
+    "unclear",
+    "not enough information",
+)
+
 # Advisory severity is a property of the CVE, independent of whether
 # this specific application is exposed. Operational priority reflects
 # whether the team should act on the alert now.
@@ -88,10 +101,16 @@ ADVISORY_SEVERITY_NOTE = (
 )
 
 
-def _evidence_insufficient(parsed: dict) -> bool:
+def _evidence_insufficient(parsed: dict, log: str = "") -> bool:
     """Minimum-evidence policy: automatic remediation (ACTIONABLE or
     BENIGN) requires the model to cite concrete evidence and express
-    adequate confidence. BENIGN must not substitute for uncertainty."""
+    adequate confidence. BENIGN must not substitute for uncertainty.
+
+    Additionally, if the log itself admits insufficient data, a
+    disposition of certainty is unsupported regardless of cited evidence
+    or confidence — citing that insufficient-data text as evidence is
+    circular (it cites the uncertainty, not a fact that resolves it).
+    """
     if not isinstance(parsed, dict):
         return True
     cited = parsed.get("cited_evidence")
@@ -101,7 +120,17 @@ def _evidence_insufficient(parsed: dict) -> bool:
     confidence = parsed.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         return True
-    return confidence < MIN_CONFIDENCE
+    if confidence < MIN_CONFIDENCE:
+        return True
+
+    # If the log itself admits insufficient data, a certainty disposition
+    # is unsupported — the model citing the log's own insufficient-data
+    # text is echoing the uncertainty, not resolving it.
+    log_lower = (log or "").lower()
+    if any(marker in log_lower for marker in INSUFFICIENT_DATA_MARKERS):
+        return True
+
+    return False
 
 
 def triage(log_key: str) -> dict[str, Any]:
@@ -193,16 +222,25 @@ def triage(log_key: str) -> dict[str, Any]:
 
     # Minimum-evidence policy: BENIGN or ACTIONABLE without cited
     # evidence or adequate confidence is uncertainty, and uncertainty
-    # escalates. BENIGN must not substitute for uncertainty.
-    if disposition in ("ACTIONABLE", "BENIGN") and _evidence_insufficient(parsed):
+    # escalates. BENIGN must not substitute for uncertainty. A certainty
+    # disposition on a log that admits insufficient data is also
+    # unsupported — citing that text is circular.
+    if disposition in ("ACTIONABLE", "BENIGN") and _evidence_insufficient(parsed, log):
+        override_reason = (
+            "Insufficient evidence for automatic remediation: "
+            "model cited no concrete evidence or expressed low confidence; "
+            "escalating to human review.")
+        log_lower = log.lower()
+        if any(marker in log_lower for marker in INSUFFICIENT_DATA_MARKERS):
+            override_reason = (
+                "Insufficient evidence for automatic remediation: the log "
+                "itself admits insufficient data to classify, so a certainty "
+                "disposition is unsupported; escalating to human review.")
         out.update({
             "disposition": "NEEDS_HUMAN_REVIEW",
             "operational_priority": priority if priority else "NONE",
             "reason": reason,
-            "policy_override": (
-                "Insufficient evidence for automatic remediation: "
-                "model cited no concrete evidence or expressed low confidence; "
-                "escalating to human review."),
+            "policy_override": override_reason,
         })
         return out
 

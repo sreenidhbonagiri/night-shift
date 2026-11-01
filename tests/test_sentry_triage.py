@@ -9,6 +9,7 @@ build BEFORE the fix:
   3. Malformed model output (JSON arrays, nulls, missing fields) raised
      exceptions or misclassified instead of escalating safely.
 """
+import json
 import unittest
 from unittest.mock import patch
 
@@ -65,6 +66,11 @@ class TestEvidenceMinimums(unittest.TestCase):
                           return_value=model_result(response)):
             return sentry_agent.triage("actionable")
 
+    def _triage_raw(self, log_key, response, raw=None):
+        with patch.object(sentry_agent, "call_model",
+                          return_value=model_result(response, raw)):
+            return sentry_agent.triage(log_key)
+
     def test_benign_with_insufficient_evidence_escalates(self):
         """REGRESSION: BENIGN must not substitute for uncertainty — with
         no supporting evidence fields, escalate to NEEDS_HUMAN_REVIEW."""
@@ -107,6 +113,44 @@ class TestEvidenceMinimums(unittest.TestCase):
              "confidence": 0.9})
         self.assertEqual(out["disposition"], "BENIGN")
         self.assertIsNone(out.get("policy_override"))
+
+    def test_benign_on_insufficient_data_log_escalates(self):
+        """REGRESSION (independently reproduced live failure): the
+        ambiguous fixture's log text itself states 'insufficient data to
+        classify'. The model returned BENIGN, cited that text as evidence,
+        and self-reported confidence 0.95 — clearing the evidence gate and
+        yielding final BENIGN. A disposition of certainty (BENIGN or
+        ACTIONABLE) on a log that admits insufficient data must escalate:
+        citing the log's own 'insufficient data' text is not confirmatory
+        evidence, it is the signal of uncertainty."""
+        # Exact response from the live model run on the ambiguous fixture.
+        raw = json.dumps({
+            "disposition": "BENIGN", "severity": "INFO",
+            "operational_priority": "LOW",
+            "reason": ("The log indicates a possible dependency issue but "
+                       "lacks specific details for classification, which "
+                       "is a common false positive in monitoring systems."),
+            "cited_evidence": ["Possible dependency issue; insufficient data to classify"],
+            "confidence": 0.95,
+        })
+        out = self._triage_raw("ambiguous", json.loads(raw), raw)
+        self.assertEqual(out["disposition"], "NEEDS_HUMAN_REVIEW")
+        self.assertEqual(out["model_disposition"], "BENIGN")
+        self.assertIsNotNone(out.get("policy_override"))
+        self.assertIn("insufficient", out["policy_override"].lower())
+
+    def test_actionable_on_insufficient_data_log_escalates(self):
+        """Same uncertainty rule applies in the ACTIONABLE direction."""
+        out = self._triage_raw("ambiguous", {
+            "disposition": "ACTIONABLE", "severity": "WARNING",
+            "operational_priority": "HIGH",
+            "reason": "Possible dependency issue; insufficient data to classify.",
+            "cited_evidence": ["Possible dependency issue; insufficient data to classify"],
+            "confidence": 0.95,
+        })
+        self.assertEqual(out["disposition"], "NEEDS_HUMAN_REVIEW")
+        self.assertEqual(out["model_disposition"], "ACTIONABLE")
+        self.assertIsNotNone(out.get("policy_override"))
 
 
 class TestRobustModelOutput(unittest.TestCase):
