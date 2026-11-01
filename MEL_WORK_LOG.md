@@ -2398,3 +2398,14 @@ outside the repository in `~/night-shift-mel-private/`.
 ### Status after checkpoint 31
 - Committed locally; NOT pushed.
 - Paused, awaiting normal push to origin/main.
+
+## Checkpoint 32 — Published
+
+- Pushed normally to `origin/main`:
+  `ca452df..d5d1d35  main -> main`
+- Local HEAD equals origin/main:
+  `d5d1d35bb2ca729f7fe161663b4a7cf4e410b90a`
+- Working tree clean.
+- Post-push full suite: 230 passed, 0 failed.
+
+Implementation frozen unless a submission-blocking defect appears.
