@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
@@ -29,49 +28,58 @@ ALLOWED = {"CRITICAL", "WARNING", "INFO", "FALSE_POSITIVE"}
 
 app = FastAPI(title="Night Shift")
 
-# CORS for public deployment: the frontend may be served from a different
-# origin (Vercel) than the execution backend. NS_CORS_ORIGIN, if set,
-# restricts the allowed origin; unset means same-origin (local dev).
-_cors_origin = os.environ.get("NS_CORS_ORIGIN")
-if _cors_origin:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[_cors_origin],
-        allow_methods=["GET", "POST"],
-        allow_headers=["*"],
-    )
-
-# Server-enforced authorization for public deployment.
-# NS_DEMO_TOKEN gates all state-mutating endpoints. If set, callers must
-# include Authorization: Bearer <token>. Read-only endpoints (GET) are
-# allowed without a token so the console can display status.
-_DEMO_TOKEN = os.environ.get("NS_DEMO_TOKEN")
-_MUTATING_PREFIXES = (
-    "/workflow",
-    "/inbox",
-    "/incident/",
-    "/sentry-classify",
-)
+# Server-enforced HTTP Basic auth for public deployment.
+# NS_BASIC_USER and NS_BASIC_PASS are set as hosting secrets only.
+# When both are set, all endpoints except the public landing page (/)
+# and /health require Basic auth. The landing page stays public.
+# No credentials appear in tracked files or frontend code.
+_BASIC_USER = os.environ.get("NS_BASIC_USER")
+_BASIC_PASS = os.environ.get("NS_BASIC_PASS")
+# Public paths that do not require auth (landing page + health).
+_PUBLIC_PATHS = {"/", "/health"}
 
 
 @app.middleware("http")
-async def _auth_gate(request: Request, call_next):
-    """Bearer-token gate on mutating endpoints for public deployment."""
-    if not _DEMO_TOKEN:
+async def _basic_auth_gate(request: Request, call_next):
+    """HTTP Basic auth gate for public deployment.
+
+    When NS_BASIC_USER and NS_BASIC_PASS are both set, every endpoint
+    except the public landing page (/) and /health requires valid Basic
+    credentials. This protects the console, all incident/inference/
+    workflow/approval/release/export endpoints — including GET.
+    Browser requests and JSON downloads work through the same origin
+    because the browser presents the login dialog once per session.
+    """
+    if not (_BASIC_USER and _BASIC_PASS):
         return await call_next(request)
-    # Read-only: allow without token
-    if request.method == "GET":
+    path = request.url.path.rstrip("/") or "/"
+    if path in _PUBLIC_PATHS:
         return await call_next(request)
-    # Mutating: require matching bearer token
-    for prefix in _MUTATING_PREFIXES:
-        if request.url.path.rstrip("/").startswith(prefix):
-            auth = request.headers.get("authorization", "")
-            if not auth.startswith("Bearer ") or auth[7:] != _DEMO_TOKEN:
-                return JSONResponse(
-                    status_code=401,
-                    content={"error": "Unauthorized"},
-                )
-            break
+    import base64, secrets as _secrets
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.startswith("Basic "):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Unauthorized"},
+            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
+        )
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        user, _, password = decoded.partition(":")
+    except Exception:
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Unauthorized"},
+            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
+        )
+    # Constant-time comparison to avoid timing attacks.
+    if not (_secrets.compare_digest(user, _BASIC_USER)
+            and _secrets.compare_digest(password, _BASIC_PASS)):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "Unauthorized"},
+            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
+        )
     return await call_next(request)
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
@@ -159,18 +167,15 @@ def workflow():
 
     Returns immediately with the incident id and a 'running' status.
     Poll /workflow/status/{id} for live progress.
-    Duplicate-submission guard: if a workflow is already running, returns
-    the existing incident id instead of starting a new one.
-
-    The duplicate check, incident pre-registration, and workflow
-    reservation happen inside a single lock acquisition, so concurrent
-    submissions can never start two jobs.
+    Global execution limit: only one workflow (inbox or standalone) may
+    run at a time. Overlapping runs are rejected.
     """
     with _store_lock:
-        # Duplicate guard: if any workflow is already running, return it.
+        # Global execution limit: reject if any workflow is already running.
         for inc_id, running in _running_workflows.items():
             if running:
                 return {"id": inc_id, "status": "running",
+                        "error": "A workflow is already running. Stop or wait for it before starting another.",
                         "message": "A workflow is already running. Poll /workflow/status/"
                                    + inc_id + " for progress."}
 
@@ -273,14 +278,25 @@ def inbox_endpoint():
     The recovery incident (if any) is registered in the incident store
     so the existing /incident/{id}, /approve, /staging-release,
     /staging-stop, and /export endpoints work for that exact incident.
+
+    Global execution limit: if a workflow is already running, inbox
+    returns the triage results but does not start a second workflow.
     """
     from app.inbox import process_inbox
     result = process_inbox()
     recovery = result.get("recovery_incident")
     if recovery:
+        # Check global execution limit before starting a recovery workflow.
         with _store_lock:
+            already_running = any(r for r in _running_workflows.values())
+            if already_running:
+                result["recovery_incident_id"] = recovery["id"]
+                result["workflow_warning"] = "A workflow is already running; recovery not started."
+                _incidents[recovery["id"]] = recovery
+                return result
             _incidents[recovery["id"]] = recovery
-        result["recovery_incident_id"] = recovery["id"]
+            _running_workflows[recovery["id"]] = True
+            result["recovery_incident_id"] = recovery["id"]
     return result
 
 
