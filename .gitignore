@@ -20,3 +20,6 @@ staging/
 *.log
 .pytest_cache/
 =2.0
+
+# live check report (runtime artifact, never in repo)
+live_inbox_check_report.json
