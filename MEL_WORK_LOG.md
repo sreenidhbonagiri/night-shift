@@ -1932,3 +1932,14 @@ $ python -m pytest tests/ -q
   the browser_snapshot text render confirming all content is present and structured.
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 24 — smooth scrolling for landing nav
+
+- Added `html { scroll-behavior: smooth; }` to `static/landing.css` so the
+  "How it works" navbar anchor glides to its section instead of jumping.
+- Respected `prefers-reduced-motion: reduce` — users with that setting
+  get an instant jump (`scroll-behavior: auto`), consistent with the
+  landing page's no-scroll-hijacking, subtle-transitions rule.
+- Verified: CSS served at `/static/landing.css` contains the change;
+  full mock suite still passes (195 passed).
+- Committed locally; NOT pushed.
