@@ -579,7 +579,7 @@ class TestWorkflowScenarios(ArtifactTmpBase):
             return {"success": True, "response": {"approval": "false", "reason": "looks false"},
                     "raw": '{"approval":"false"}', "elapsed_ms": 1.0, "error": None}
         runner = MagicMock(return_value=make_verification())
-        inc = self.run_incident(engineer_fn=make_engineer(["3.1.4"]),
+        inc = self.run_incident(engineer_fn=make_engineer(["3.1.4", "3.1.4"]),
                                 runner_fn=runner,
                                 qa_fn=lambda v: qa_verify(v, model_fn=string_false_fn),
                                 fault_inject_first=False)
@@ -652,38 +652,6 @@ class TestWorkflowScenarios(ArtifactTmpBase):
         self.assertEqual(captured["junit"]["failures"], 2)
         self.assertIn("deterministic_checks", captured)
         self.assertFalse(captured["deterministic_checks"]["pytest_returncode_zero"])
-        self.assertEqual(inc["status"], "tested_patch_awaiting_human_ability")
-
-class TestWorkflowScenarios(ArtifactTmpBase):
-
-    def test_full_workflow_verified(self):
-        art = persist_artifact("inc-full", "3.1.4", base_dir=Path(self._tmp))
-        runner = MagicMock(return_value=make_verification(artifact=art))
-        inc = self.run_incident(engineer_fn=make_engineer(["3.1.4"]),
-                                runner_fn=runner,
-                                qa_fn=lambda v: qa_verify(v, model_fn=good_model_fn),
-                                fault_inject_first=False)
-        runner.assert_called_once()
-        self.assertEqual(inc["status"], "tested_patch_awaiting_human_approval")
-        self.assertIsNotNone(inc["verified_patch"]["artifact_dir"])
-        self.assertIsNotNone(inc["verified_patch"]["manifest"])
-        self.assertIn("jinja2==3.1.4", inc["verified_patch"]["requirements_diff"])
-
-    def test_fault_injection_reaches_installer_and_rejected(self):
-        runner = MagicMock(side_effect=[
-            make_verification(installed="3.1.2", proposed="3.1.2", failures=2,
-                              rc=1, tests={**{t: "passed" for t in REQUIRED_LIST[:2]},
-                                           **{t: "failed" for t in REQUIRED_LIST[2:]}}),
-            make_verification(),
-        ])
-        inc = self.run_incident(engineer_fn=make_engineer(["3.1.4"]),
-                                runner_fn=runner,
-                                qa_fn=lambda v: qa_verify(v, model_fn=good_model_fn))
-        self.assertEqual(runner.call_count, 2)
-        first = inc["attempts"][0]
-        self.assertTrue(first["engineer"]["fault_injection"])
-        self.assertTrue(first["verification"]["installer_invoked"])
-        self.assertFalse(first["qa"]["approval"])
         self.assertEqual(inc["status"], "tested_patch_awaiting_human_approval")
 
     def test_both_attempts_rejected(self):

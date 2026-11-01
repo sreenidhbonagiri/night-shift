@@ -79,9 +79,12 @@ def evaluate(verification: Any) -> dict:
         checks["required_tests_all_passed"] = all(
             statuses.get(t) == "passed" for t in REQUIRED_TESTS
         )
-        checks["no_failures"] = junit.get("failures") == 0
-        checks["no_errors"] = junit.get("errors") == 0
-        checks["no_skips"] = junit.get("skipped") == 0
+        # Derived from per-test statuses, not from reported aggregates:
+        # any failed/errored/skipped testcase blocks success, including
+        # tests outside the required four.
+        checks["no_failures"] = all(s != "failed" for s in statuses.values())
+        checks["no_errors"] = all(s != "error" for s in statuses.values())
+        checks["no_skips"] = all(s != "skipped" for s in statuses.values())
     else:
         checks["required_tests_all_passed"] = False
         checks["no_failures"] = False

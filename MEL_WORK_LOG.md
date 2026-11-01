@@ -2,6 +2,87 @@
 
 ## Session
 - Date: 2026-10-31
+- Working directory: `<repo-root>/night-shift-mel`
+
+## Recovery checkpoint (Mel-only reconstruction + integrity repair)
+
+This repository was reconstructed in Mel from the unfinished Mel-only state
+at the pre-cutoff boundary (session event seq 1746, 2026-10-31 20:10:27).
+The original `<repo-root>/night-shift` directory is preserved
+unchanged as a reference; nothing was copied from it. Reconstruction used
+only verified successful pre-cutoff Mel session operations (write_file /
+edit_file replays plus two terminal `sed` substitutions reproduced as direct
+string replacements; no historical shell commands were executed). See
+PROVENANCE.md.
+
+### Baseline state as recovered (commit 8c5dc83)
+- Known defects preserved intentionally: `TestWorkflowScenarios` defined
+  twice in tests/test_mock_acceptance.py (the second shadowed the first, so
+  only 60 of 70 defined tests ran), and one assertion used the typo'd status
+  `tested_patch_awaiting_human_ability`.
+- First run after reconstruction: `Ran 60 tests ... FAILED (failures=6)`.
+
+### Repairs (all authored in Mel, in this session)
+1. `app/isolated_runner.py`:
+   - Application supporting pin is now `MarkupSafe==2.1.5` ONLY; the
+     verification tool pin (`pytest==8.3.3`) is separate
+     (`VERIFICATION_TOOL_PIN`) and installed separately, never part of the
+     application's requirements.
+   - `_parse_junit` aggregate counts must be non-negative integer TEXT
+     (rejects `true`, `1.5`, `-1`, missing attributes as parse errors) and
+     must match the derived per-testcase counts.
+   - `persist_artifact` forwards `fault_injection` into
+     `validate_requirements` so the orchestrator's trusted labeled scenario
+     can persist 3.1.2; model attempts still cannot.
+2. `app/evidence.py`: `no_failures`/`no_errors`/`no_skips` are derived from
+   per-test statuses — any failed/errored/skipped testcase blocks success,
+   including tests outside the required four.
+3. `tests/test_mock_acceptance.py`:
+   - Removed the duplicate `TestWorkflowScenarios` class (which had shadowed
+     the fuller first definition and hid 4 passing tests plus the failing
+     string-"false" case).
+   - Fixed `tested_patch_awaiting_human_ability` →
+     `tested_patch_awaiting_human_approval`.
+   - `test_model_false_string_rejected` now supplies proposals for both
+     attempts (the malformed-QA rejection triggers a second engineer call).
+
+### Verification results (actual)
+
+Mock suite after repairs:
+```
+.venv/bin/python tests/test_mock_acceptance.py
+Ran 64 tests in 0.327s
+OK
+```
+
+One bounded live recovery (localhost 127.0.0.1:8000, real Ollama
+qwen3:4b, real disposable-venv installs):
+- Attempt 1 (fault injection, jinja2 3.1.2): installer invoked, installed
+  3.1.2, pytest rc 1, 2 junit failures
+  (`test_xmlattr_rejects_space_in_key`, `test_xmlattr_rejects_slash_in_key`),
+  QA approval False — rejected on real evidence.
+- Attempt 2 (model, jinja2 3.1.4): installed 3.1.4, pytest rc 0, all 4
+  required tests passed, QA approval True.
+- Human approval: True. Simulated deployment: True. Export contains the
+  disclaimer, human_approval, and simulated_deployment.
+
+```
+[LIVE PASS]
+```
+
+Server stopped after the check. The original night-shift directory was not
+modified (no git repo there; no writes performed).
+
+### Notes
+- Raw session records remain private, outside this repository.
+- Git records changes, not authorship; PROVENANCE.md documents the
+  reconstruction method and the cutoff evidence.
+- Dashboard/staging/grounded-investigation/live-progress reconstruction is
+  deliberately out of scope for this checkpoint.
+- Below: the historical Mel work log sections recovered with the baseline.
+
+## Session (historical, recovered with the baseline)
+- Date: 2026-10-31
 - Working directory: `<repo-root>/night-shift`
 
 ## Integrity Checkpoint (requirements-boundary, artifact, evidence-gate hardening)

@@ -40,11 +40,11 @@ ALLOWED_VERSIONS = {"3.1.4", "3.1.5", "3.1.6"}
 # The trusted fault-injection exception: EXACTLY this version, no others.
 FAULT_INJECTION_VERSION = "3.1.2"
 
-# The exact pinned supporting dependency set. Nothing else may appear.
-# The exact pinned supporting dependency set. Nothing else may appear.
-# MarkupSafe 2.1.5 is verified compatible with Jinja2 3.1.x.
-# pytest 8.3.3 is the exact version installed in the backend environment.
-SUPPORTING_PINS = {"MarkupSafe==2.1.5", "pytest==8.3.3"}
+# The application's supporting dependency pins. Verification tooling
+# (pytest) is installed separately from the application requirements.
+# MarkupSafe 2.1.5 is the verified application pin.
+SUPPORTING_PINS = {"MarkupSafe==2.1.5"}
+VERIFICATION_TOOL_PIN = "pytest==8.3.3"
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
@@ -171,8 +171,11 @@ def persist_artifact(incident_id: str, version: str,
     (art_dir / "app").mkdir(parents=True)
 
     proposed = f"{REMEDIATION_PACKAGE}=={version}\n" + "\n".join(sorted(SUPPORTING_PINS)) + "\n"
-    # Validate the bytes we are about to persist.
-    reason = validate_requirements(proposed, version)
+    # Validate the bytes we are about to persist. The fault-injection flag is
+    # forwarded so the trusted orchestrator scenario can persist 3.1.2; a
+    # model attempt can never set it.
+    reason = validate_requirements(proposed, version,
+                                   fault_injection=fault_injection)
     if reason:
         shutil.rmtree(art_dir, ignore_errors=True)
         return None
@@ -275,7 +278,7 @@ def verify_patch(artifact: dict) -> dict:
             result["test_output"] = out + err
             return result
 
-        rc, out, err = _run([str(pip), "install", "-q", "pytest"], cwd=workdir)
+        rc, out, err = _run([str(pip), "install", "-q", VERIFICATION_TOOL_PIN], cwd=workdir)
         if rc != 0:
             result["error"] = f"pytest install failed: {err}"
             return result
@@ -435,11 +438,16 @@ def _parse_junit(xml_path: Path) -> dict:
     for suites in root.iter("testsuite"):
         for attr, key in (("tests", "total"), ("failures", "failures"),
                           ("errors", "errors"), ("skipped", "skipped")):
-            try:
-                val = int(suites.get(attr, 0))
-            except (TypeError, ValueError):
-                val = 0
-            reported[key] += val
+            raw = suites.get(attr)
+            if raw is None:
+                evidence["parse_error"] = f"{key} count missing"
+                return evidence
+            # Attribute values are text; they must be non-negative integer
+            # text ("true", "1.5", "-1", binary garbage all fail here).
+            if not isinstance(raw, str) or not raw.strip().isdigit():
+                evidence["parse_error"] = f"{key} count is not integer text ({raw!r})"
+                return evidence
+            reported[key] += int(raw)
 
     for suites in root.iter("testsuite"):
         for case in suites.iter("testcase"):
