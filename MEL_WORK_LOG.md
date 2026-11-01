@@ -1074,7 +1074,42 @@ remains the proof.
   customer-quote permission) remain open on the checklist.
 - Paused after commit.
 
-## Checkpoint 10 — publication preparation (no publishing)
+## Checkpoint 11 — full-history audit, publish to GitHub
+
+### Full-history audit (all 8 commits)
+Scanned every blob in the complete Git history (`git log --all -p`):
+
+| Category | Result |
+|---|---|
+| Personal paths (`sreenidhbonagiri`, `/Users/<name>`) | **0** — all replaced with `<repo-root>/night-shift-mel`, `<repo-root>/night-shift`, `<home>/…`, or `<username>` |
+| Secrets (AWS/GitHub keys, private keys, tokens) | **0** |
+| Private session records (actual `*.events.jsonl`, `mel-conversation*.json`) | **0** — `.gitignore` pattern references remain (these are glob patterns, not files) |
+
+Filtering was performed with `git-filter-repo --blob-callback` rewriting all
+historical blobs. The pre-filter `.git` backup was preserved privately and
+then cleaned up after verification.
+
+### Publication
+- Remote: `https://github.com/sreenidhbonagiri/night-shift.git`
+- Push: `git push -u origin main` succeeded (new branch, no force-push).
+- Public visibility confirmed via browser snapshot: README renders, 7
+  commits visible, file tree matches tracked files.
+- No application deployment performed.
+
+### Post-publish verification
+```
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py -q
+106 passed in 10.58s
+```
+
+### Status after checkpoint 11
+- Published at https://github.com/sreenidhbonagiri/night-shift
+- Full-history audit clean: no secrets, personal paths, or session records.
+- Private records preserved outside the repository.
+- Remaining submission items: demo video, Mel-session video/export,
+  fresh timestamped test proof, Sunday curveball (awaiting organizer's
+  request), customer-quote permission, license decision.
+- Paused. — publication preparation (no publishing)
 
 ### Changes (documentation only; no application behavior touched)
 1. **Personal paths redacted from tracked docs.** `MEL_WORK_LOG.md` and
