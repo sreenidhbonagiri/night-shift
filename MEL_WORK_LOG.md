@@ -2344,3 +2344,57 @@ but the fix removes that dependence entirely.
 ### Status after checkpoint 30
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 31 — Independent external verification and publication prep
+
+### Independent verification (external)
+
+A separate verification run against the repaired code completed
+successfully with `PYTHONDONTWRITEBYTECODE` and `PYTEST_ADDOPTS` explicitly
+unset in the parent environment:
+
+- **Full suite:** 230 passed.
+- **Fresh browser inbox run:** all five signals classified and routed
+  correctly.
+- **Fault-injected patch:** rejected by deterministic QA.
+- **Corrected patch:** passed QA (Jinja2 3.1.4, 4/4 tests green).
+- **Git proposal:** branch, commit, and diff displayed in the console.
+- **Approval:** bound to the matching Git commit and tree.
+- **Local staging:** `/health` passed; all three `/smoke` checks passed;
+  staging stopped cleanly.
+- **Export:** genuine JSON downloaded through Chrome and parsed
+  successfully; contained measured Jinja2 3.1.4, matching approved
+  commit/tree, and `staging_running=false`.
+- **Recovery timing:** 44,854.95 ms, including Git verification.
+- **Incident id:** b7733f5a-6064-4368-b8ee-89f48513316c.
+
+### Pre-publication audit
+
+**Publication range:** `1835b51..7d7f833` (5 commits ahead of
+`origin/main`).
+
+**Historical finding:** commit `1835b51` originally contained absolute
+paths (`/Users/sreenidhbonagiri/night-shift-mel-private/evaluation`) in
+`tests/run_heldout_eval.py`, `tests/run_mutation_test.py`, and
+`tests/run_real_recovery.py`. These were replaced in commit `cf85c23` with
+`NS_PRIVATE_DIR` (env override) and a `~/night-shift-mel-private/evaluation`
+fallback. The final working tree contains no absolute personal paths; only
+`MEL_WORK_LOG.md` mentions the old paths to document the cleanup.
+
+**Other audit checks:** no secrets, tokens, passwords, API keys, private
+session artifacts, runtime environment dumps, or caches found in the
+pending commits. The genuine browser-run export and private reports remain
+outside the repository in `~/night-shift-mel-private/`.
+
+### Documentation cleanup
+
+- `README.md`: updated the local staging flow to describe the Git
+  proposal, commit/tree binding, and release gate; updated test counts;
+  preserved the honest six-case held-out evaluation result (3/6 matches,
+  zero unauthorized actions, inconclusive prompt-injection resistance).
+- `MEL_WORK_LOG.md`: this entry added, attributed as external
+  verification.
+
+### Status after checkpoint 31
+- Committed locally; NOT pushed.
+- Paused, awaiting normal push to origin/main.

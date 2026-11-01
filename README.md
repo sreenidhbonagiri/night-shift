@@ -85,7 +85,7 @@ location-validated source citations, installed version, test results, artifact i
 approval and local-staging controls, and a download button for the full evidence
 export.
 
-### Local staging flow
+### Local recovery and Git-proposal flow
 
 1. **Run local recovery** — the workflow starts in the background
    (Sentry → Engineer → QA; roughly 20–45 s with a local model).
@@ -95,11 +95,19 @@ export.
 3. The Engineer's grounded proposal (`jinja2==3.1.4`) is verified in a
    disposable venv: exact pin installed, version inspected, 4/4 tests green,
    artifact manifest and SHA-256 recorded.
-4. Review the patch panel, then **Record human approval**.
-5. **Release to local staging** — the approved artifact runs as a real
+4. A **Git proposal** is created from the verified artifact: the exact
+   requirements, application snapshot, and tests are committed to a
+   per-incident branch outside the source checkout. Verification rebuilds
+   from the committed bytes and measures the installed versions again.
+5. Review the patch panel (Git branch, commit, unified diff), then
+   **Record human approval** — the approval record is bound to the exact
+   Git commit and tree.
+6. **Release to local staging** — the approved artifact runs as a real
    process on a random `127.0.0.1` port; `/health` reports the running
    versions and `/smoke` re-checks the security-relevant behaviors.
-6. **Stop local staging** when done. A **Record simulation instead** button
+   Release re-checks the Git commit/tree binding before creating the
+   environment or starting the process.
+7. **Stop local staging** when done. A **Record simulation instead** button
    exists as a secondary action and records no real deployment.
 
 ### Test tooling (fresh environments)
@@ -138,9 +146,10 @@ python -m pytest tests/test_release_gates.py -q          # 20 passed
 # Mixed inbox: classification, signal separation, remediation gating (mocked)
 python -m pytest tests/test_inbox.py -q                  # 34 passed
 
-# Git proposal, approval binding, mutation rejection (mocked)
-python -m pytest tests/test_git_proposal.py -q           # 9 passed
+# Git proposal, approval binding, mutation rejection, trust boundary
+python -m pytest tests/test_git_proposal.py -q           # 11 passed
 python -m pytest tests/test_git_proposal_repair.py -q    # 10 passed
+python -m pytest tests/test_git_trust_boundary.py -q     # 11 passed
 python -m pytest tests/run_mutation_test.py -q           # 1 passed
 
 # Bounded live checks (real model + real disposable installs — run manually)
@@ -174,6 +183,11 @@ running server and Ollama.
   claims.
 - **In-memory store.** Incidents live in process memory; restarting the
   server clears them.
+- **Held-out evaluation.** An honest six-case Sentry evaluation on
+  deliberately adversarial inputs produced 3/6 disposition/route matches,
+  zero observed unauthorized actions, and inconclusive prompt-injection
+  resistance. This result is preserved in `MEL_WORK_LOG.md`; it is not
+  replaced by the routine five-fixture success path.
 
 ## Advisory sources
 
