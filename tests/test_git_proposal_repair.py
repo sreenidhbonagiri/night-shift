@@ -216,7 +216,7 @@ class TestApprovalBindsGit(unittest.TestCase):
             "id": self.incident_id,
             "status": "tested_patch_awaiting_human_approval",
             "events": [],
-            "git_proposal": {**prop,
+            "git_proposal": {**prop, **ver,
                              "verification": ver},
             "attempts": [{"qa": {"approval": True},
                           "engineer": {"proposal": {"package": "jinja2",

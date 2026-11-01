@@ -2222,3 +2222,64 @@ and what was actually done.
 ### Status after checkpoint 28
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 29 — Git trust-boundary closure
+
+Independent verification reproduced a concrete gap in checkpoint 28's
+`verify_checkout`: with `proposed_version=3.1.4` and a measured installed
+version of **3.1.2**, required tests passing returned `verified=True` with
+no error. The measured version was never compared to the approved pin.
+That gap and the two binding gaps are closed here.
+
+### Repairs
+
+1. **Committed requirements validated before install.**
+   `verify_checkout` now runs `validate_requirements` (the existing strict
+   installer policy — exact pin set, no URLs/editable lines/pip options)
+   against the committed `requirements.txt` BEFORE any package-install
+   subprocess. A regression test spies on `_run` and asserts pip never
+   runs on disallowed requirements.
+
+2. **Measured versions must match the approved exact pins.** After
+   installation, the measured Jinja2 version must equal the approved pin
+   and each measured supporting dependency must equal its exact pin;
+   mismatches reject verification. The valid exact-pin case still
+   verifies with `installed_version_source: "measured"`.
+
+3. **Pre-approval vs post-approval binding separated.**
+   - Pre-approval: new `validate_proposal_pre_approval` requires a
+     verified, clean, error-free proposal whose checkout matches its own
+     recorded commit/tree. `approve()` uses it and records
+     `git: {commit, tree, branch}` in the approval record.
+   - Post-approval: `check_approval_binding` now reads ONLY the approval
+     record's commit/tree — no fallback to mutable proposal identifiers.
+     A missing binding fails closed.
+   - Release gate (`_release_gate`): an approved incident with a Git
+     binding or a stored Git proposal (the workflow always writes the
+     key, even as an error dict) is Git-bound. Missing proposal, missing
+     approval commit/tree, failed verification, or a stored proposal
+     error all reject BEFORE environment creation or process start.
+     Explicitly supported non-Git flows (staging-test fixtures that
+     carry no git_proposal key and no approval.git binding) remain
+     unaffected.
+
+### Verification
+
+- **Focused regression tests:** `tests/test_git_trust_boundary.py`
+  (11 tests) — pre-install requirements rejection (pip never invoked),
+  supporting-pin mismatch, measured Jinja2 mismatch (reproducing the
+  independently found 3.1.2-as-3.1.4 gap), valid exact pins, and five
+  fail-closed release cases asserting `_make_env`/`_start` are never
+  called. **11/11 passed.**
+- **Complete suite: 229 passed, 0 failed** (was 217; +11 trust-boundary
+  + 1 additional binding-record test). Older binding tests updated to
+  build a real approval record (previously they relied on the mutable
+  fallback that no longer exists).
+- Test composition is no longer uniformly "mock-only": the Git checkout
+  verification and trust-boundary tests create real disposable venvs and
+  install real packages locally (integration-level), while the model
+  calls remain mocked. Unit tests still cover the deterministic gates.
+
+### Status after checkpoint 29
+- Committed locally; NOT pushed.
+- Paused.

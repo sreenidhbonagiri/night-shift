@@ -106,11 +106,24 @@ class TestApprovalBindingRecheck(unittest.TestCase):
         if repo.exists():
             shutil.rmtree(repo, ignore_errors=True)
 
+    def _approved(self, prop):
+        """Approval record bound to the proposal's commit/tree."""
+        return {
+            "id": self.incident_id,
+            "human_approval": {
+                "approved": True, "actor": "human",
+                "incident_id": self.incident_id,
+                "git": {"commit": prop["proposal_commit"],
+                        "tree": prop["proposal_tree"],
+                        "branch": prop["branch"], "verified": True},
+            },
+        }
+
     def test_clean_checkout_passes_binding(self):
         prop = gp.create_proposal(
             self.incident_id, "3.1.4", self.artifact_dir,
             "sha256bind", {})
-        incident = {"id": self.incident_id}
+        incident = self._approved(prop)
         result = gp.check_approval_binding(incident, prop)
         self.assertIsNone(result)
 
@@ -120,7 +133,7 @@ class TestApprovalBindingRecheck(unittest.TestCase):
             "sha256bind", {})
         # Dirty the working tree.
         (Path(prop["repo_dir"]) / "main.py").open("a").write("\n# dirty\n")
-        incident = {"id": self.incident_id}
+        incident = self._approved(prop)
         result = gp.check_approval_binding(incident, prop)
         self.assertIsNotNone(result)
         self.assertIn("Dirty", result)
@@ -132,11 +145,21 @@ class TestApprovalBindingRecheck(unittest.TestCase):
             "sha256bind", {})
         # Mutate via the trusted test helper.
         gp.mutate_requirements_for_test(prop)
-        incident = {"id": self.incident_id}
+        incident = self._approved(prop)
         result = gp.check_approval_binding(incident, prop)
         self.assertIsNotNone(result)
         # Mutation makes working tree dirty OR diff mismatch — either is a valid rejection.
         self.assertTrue("Dirty" in result or "diff does not match" in result)
+
+    def test_missing_approval_record_fails_closed(self):
+        """Without an approval record, the binding must refuse to trust
+        mutable proposal identifiers."""
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256bind", {})
+        result = gp.check_approval_binding({"id": self.incident_id}, prop)
+        self.assertIsNotNone(result)
+        self.assertIn("approved Git commit/tree", result)
 
 
 class TestMutationRejectionAtReleaseGate(unittest.TestCase):

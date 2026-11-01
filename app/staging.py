@@ -238,12 +238,39 @@ def _release_gate(incident: dict) -> Optional[str]:
     if reason:
         return f"Artifact manifest recheck failed: {reason}"
 
-    # Git proposal binding: if a git_proposal exists, recheck that the
-    # checkout is clean and on the exact approved commit/tree. A stored
-    # verification may carry error=None from the merged evidence shape, so
-    # test truthiness rather than key presence.
-    git_prop = incident.get("git_proposal")
-    if isinstance(git_prop, dict) and not git_prop.get("error"):
+    # Git proposal binding: once an approval carries a Git binding, release
+    # is Git-bound and must fail closed. A missing proposal, missing
+    # approval commit/tree, failed Git verification, or a stored proposal
+    # error all reject before environment creation or process start. There
+    # is no fallback to mutable proposal identifiers: the approval record
+    # is the only trusted source of the approved commit/tree.
+    approval = incident.get("human_approval") or {}
+    approval_git = approval.get("git") or {}
+    has_git_binding = bool(approval_git)
+    # The workflow always writes a git_proposal key (an error dict on
+    # failure) for Git-delivered incidents. Presence of that key means Git
+    # delivery was part of this incident.
+    has_proposal_key = "git_proposal" in incident
+    if approval.get("approved") and (has_git_binding or has_proposal_key):
+        # Git-bound: the proposal must exist, be verified, carry no stored
+        # error, and the approval record's commit/tree must match the
+        # checkout. A Git-bound incident must not downgrade to the
+        # artifact-only path, and there is no fallback to mutable proposal
+        # identifiers.
+        git_prop = incident.get("git_proposal")
+        if not isinstance(git_prop, dict) or not git_prop.get("repo_dir"):
+            return ("Git-bound incident has no usable Git proposal; "
+                    "release refused before environment creation")
+        if not has_git_binding:
+            return ("Approved incident has a Git proposal but no Git binding "
+                    "in the approval record; release refused")
+        if not approval_git.get("commit") or not approval_git.get("tree"):
+            return "Git-bound approval is missing its commit/tree binding"
+        if git_prop.get("error"):
+            return f"Git proposal carries a stored error: {git_prop.get('error')}"
+        if not git_prop.get("verified"):
+            return ("Git proposal verification missing or failed: "
+                    f"{git_prop.get('error') or 'verification did not pass'}")
         try:
             from app import git_proposal as gp
             git_reason = gp.check_approval_binding(incident, git_prop)

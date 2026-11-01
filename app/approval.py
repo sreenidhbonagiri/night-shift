@@ -158,7 +158,7 @@ def approve(incident: dict, actor: str = "human") -> dict:
                 "utc_timestamp": _current_ts(),
             }
         from app import git_proposal as gp
-        binding_reason = gp.check_approval_binding(incident, git_prop)
+        binding_reason = gp.validate_proposal_pre_approval(git_prop)
         if binding_reason:
             return {
                 "approved": False,

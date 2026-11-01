@@ -28,6 +28,7 @@ from app.isolated_runner import (
     VERIFICATION_TOOL_PIN,
     _run,
     _parse_junit,
+    validate_requirements,
 )
 
 # Root for all Git fixture repositories. Never inside the source checkout.
@@ -189,7 +190,15 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
     if absent:
         return fail(f"committed checkout missing files: {', '.join(absent)}")
 
-    # 2. Disposable venv built from the committed requirements bytes.
+    # 2. Validate the committed requirements bytes against the strict
+    # installer policy BEFORE any package-install subprocess runs.
+    req_path = repo_dir / "requirements.txt"
+    req_bytes = req_path.read_text()
+    req_reason = validate_requirements(req_bytes, proposal["proposed_version"])
+    if req_reason:
+        return fail(f"committed requirements rejected by installer policy: {req_reason}")
+
+    # 3. Disposable venv built from the committed requirements bytes.
     workdir = Path(tempfile.mkdtemp(prefix="nightshift-gitverify-"))
     venv_dir = workdir / ".venv"
     try:
@@ -199,7 +208,6 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
         pip = venv_dir / "bin" / "pip"
         python = venv_dir / "bin" / "python"
 
-        req_path = repo_dir / "requirements.txt"
         rc, out, err = _run([str(pip), "install", "-q", "-r", str(req_path)],
                             cwd=workdir)
         if rc != 0:
@@ -211,7 +219,8 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
         if rc != 0:
             return fail(f"pytest install failed: {err}")
 
-        # 3. Measure installed versions FROM the built environment.
+        # 4. Measure installed versions FROM the built environment and
+        # require them to match the approved exact pins.
         rc, out, err = _run(
             [str(python), "-c",
              "from importlib.metadata import version; print(version('%s'))"
@@ -223,6 +232,10 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
         measured = out.strip()
         result["installed_version"] = measured
         result["installed_version_source"] = "measured"
+        if measured != proposal["proposed_version"]:
+            return fail(
+                f"measured {REMEDIATION_PACKAGE} version {measured} does not "
+                f"match the approved pin {proposal['proposed_version']}")
 
         dep_versions = {}
         for dep in ("MarkupSafe", "pytest"):
@@ -234,6 +247,17 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
             if drc == 0 and dout.strip():
                 dep_versions[dep] = dout.strip()
         result["installed_dependency_versions"] = dep_versions
+
+        # Supporting pins must measure exactly their committed pin values.
+        for pin in SUPPORTING_PINS:
+            name, _, expected = pin.partition("==")
+            measured_dep = dep_versions.get(name)
+            if measured_dep is None:
+                return fail(f"supporting dependency {name} not measurable")
+            if measured_dep != expected:
+                return fail(
+                    f"measured {name} version {measured_dep} does not match "
+                    f"the exact pin {expected}")
 
         # 4. Run the committed tests against the committed app code. JUnit
         # output goes to the temp workdir (absolute path) so the fixture
@@ -279,20 +303,53 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def validate_proposal_pre_approval(proposal: dict) -> Optional[str]:
+    """Pre-approval validation of a Git proposal: must be a clean, verified
+    checkout with no stored error. This runs BEFORE approval exists, so it
+    compares the checkout against the proposal's own recorded identifiers —
+    the post-approval binding (check_approval_binding) separately rechecks
+    against the immutable approval record.
+    """
+    if not isinstance(proposal, dict) or not proposal.get("repo_dir"):
+        return "No Git proposal stored"
+    if proposal.get("error"):
+        return f"Git proposal carries a stored error: {proposal.get('error')}"
+    if not proposal.get("verified"):
+        return ("Git proposal verification missing or failed: "
+                f"{proposal.get('error') or 'verification did not pass'}")
+    repo_dir = Path(proposal["repo_dir"])
+    if not repo_dir.exists():
+        return "Fixture repository directory missing"
+    r = _git(repo_dir, "rev-parse", "HEAD")
+    if r.returncode != 0:
+        return "Cannot read current HEAD"
+    if r.stdout.strip() != proposal.get("proposal_commit"):
+        return "Checkout is not on the proposal commit"
+    r = _git(repo_dir, "rev-parse", "HEAD^{tree}")
+    if r.returncode != 0 or r.stdout.strip() != proposal.get("proposal_tree"):
+        return "Checkout tree does not match the proposal tree"
+    r = _git(repo_dir, "status", "--porcelain")
+    if r.returncode != 0:
+        return "Git status failed"
+    if r.stdout.strip():
+        return f"Dirty working tree: {r.stdout.strip()[:200]}"
+    return None
+
+
 def check_approval_binding(incident: dict, proposal: dict) -> Optional[str]:
     """Recheck the Git state against the APPROVAL RECORD's commit/tree.
 
-    Prefers incident["human_approval"]["git"] (immutable at approval time);
-    falls back to the proposal descriptor only when no approval record
-    exists. Returns None if clean, or an error string identifying the
-    broken binding.
+    The approval record is the only trusted source of the approved
+    commit/tree; mutable proposal identifiers are never used as a
+    fallback. A missing binding fails closed. Returns None if clean, or
+    an error string identifying the broken binding.
     """
     approval = incident.get("human_approval") or {}
     approval_git = approval.get("git") or {}
-    expected_commit = approval_git.get("commit") or proposal.get("proposal_commit")
-    expected_tree = approval_git.get("tree") or proposal.get("proposal_tree")
+    expected_commit = approval_git.get("commit")
+    expected_tree = approval_git.get("tree")
     if not expected_commit or not expected_tree:
-        return "No approved Git commit/tree to bind against"
+        return "No approved Git commit/tree binding on record; refusing to trust mutable identifiers"
 
     repo_dir = Path(proposal["repo_dir"])
     if not repo_dir.exists():
