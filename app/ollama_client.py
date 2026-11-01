@@ -15,7 +15,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 
 
-def call_model(system_prompt: str, user_prompt: str, expect_json: bool = True, timeout: float = 120.0) -> dict[str, Any]:
+def call_model(system_prompt: str, user_prompt: str, expect_json: bool = True, timeout: float = None) -> dict[str, Any]:
     """Call the local Ollama model and return structured metadata.
 
     Returns a dict with keys:
@@ -25,6 +25,8 @@ def call_model(system_prompt: str, user_prompt: str, expect_json: bool = True, t
       - elapsed_ms: float
       - error: str or None
     """
+    if timeout is None:
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
     prompt = f"{system_prompt}\n\n{user_prompt}\n\nResponse:"
     payload = {
         "model": MODEL,

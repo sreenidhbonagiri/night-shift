@@ -136,7 +136,7 @@ def sentry_classify():
 
     start = time.perf_counter()
     try:
-        resp = httpx.post(OLLAMA_URL, json=payload, timeout=120.0)
+        resp = httpx.post(OLLAMA_URL, json=payload, timeout=float(os.environ.get("OLLAMA_TIMEOUT", "120")))
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:
