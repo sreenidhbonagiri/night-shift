@@ -64,6 +64,60 @@ def fake_workflow(**kw):
     }
 
 
+def noop_workflow(**kw):
+    return {"id": kw.get("incident_id", "x"), "status": "blocked",
+            "events": [], "attempts": [],
+            "elapsed_alert_to_tested_patch_ms": None}
+
+
+class TestInboxLogField(unittest.TestCase):
+    """The inbox results must include the actual triage input log,
+    not model reasoning, exactly matching the original input."""
+
+    def test_entry_includes_log_field(self):
+        """Every inbox_results entry must carry a 'log' field."""
+        def triage_fn(key):
+            return make_triage("BENIGN")(key)
+
+        out = ib.process_inbox(triage_fn=triage_fn,
+                               workflow_fn=noop_workflow,
+                               fault_inject_first=False)
+        for entry in out["inbox_results"]:
+            self.assertIn("log", entry)
+            self.assertIsInstance(entry["log"], str)
+
+    def test_log_matches_original_fixture(self):
+        """The log field must exactly match the original synthetic input
+        (sentry_agent.SYNTHETIC_FIXTURES[key]), NOT the model's reasoning
+        (which is stored in 'reason')."""
+        def triage_fn(key):
+            return make_triage("BENIGN")(key)
+
+        out = ib.process_inbox(triage_fn=triage_fn,
+                               workflow_fn=noop_workflow,
+                               fault_inject_first=False)
+        for entry in out["inbox_results"]:
+            key = entry["log_key"]
+            expected_log = sentry_agent.SYNTHETIC_FIXTURES[key]
+            self.assertEqual(entry["log"], expected_log,
+                f"log for {key} must match fixture, got {entry['log']!r}")
+
+    def test_log_is_not_model_reasoning(self):
+        """The log field must differ from the model reasoning ('reason')
+        when the reasoning is present — proving they are separate fields."""
+        def triage_fn(key):
+            return make_triage("BENIGN", reason="MODEL_REASONING_MARKER")(key)
+
+        out = ib.process_inbox(triage_fn=triage_fn,
+                               workflow_fn=noop_workflow,
+                               fault_inject_first=False)
+        for entry in out["inbox_results"]:
+            self.assertNotEqual(entry["log"], entry["reason"],
+                "log and reason must be separate fields")
+            self.assertEqual(entry["reason"], "MODEL_REASONING_MARKER")
+            self.assertNotIn("MODEL_REASONING_MARKER", entry["log"])
+
+
 class TestInboxIncidentRegistration(unittest.TestCase):
     """The inbox's recovery incident must be registered in the incident
     store so existing /incident/{id}, /approve, /staging-release,

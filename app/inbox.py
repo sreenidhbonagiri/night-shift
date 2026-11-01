@@ -237,6 +237,7 @@ def process_inbox(
         entry = {
             "log_key": log_key,
             "description": item["description"],
+            "log": triage_out.get("log"),
             "expected_disposition": item["expected_disposition"],
             "expected_route": item["expected_route"],
             "disposition": disposition,

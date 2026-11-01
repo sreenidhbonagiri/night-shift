@@ -228,6 +228,7 @@ async function loadIncident(incidentId, signal) {
     state.currentIncident = d;
     state.currentIncidentId = incidentId;
     renderIncident(d, signal);
+    renderEvidence(d);
     setStatus(statusLabel(d.status));
     refreshEvidenceSelector();
   } catch (e) {
@@ -512,8 +513,8 @@ async function reloadIncident() {
   const signal = state.inboxData ? (state.inboxData.inbox_results || []).find(x => x.log_key === state.selectedSignalKey) : null;
   renderIncident(d, signal);
   setStatus(statusLabel(d.status));
-  // Refresh evidence tab content to match current state
   renderEvidence(d);
+  refreshEvidenceSelector();
 }
 
 // ---- Evidence tab ----

@@ -1823,3 +1823,28 @@ $ python -m pytest tests/ -q
 ### Status after checkpoint 19
 - Corrections committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 20 — two data-flow corrections
+
+### Corrections
+1. `app/inbox.py`: added `"log": triage_out.get("log")` to each
+   `inbox_results` entry so the frontend can display the actual triage
+   input text (not model reasoning). Regression tests assert the log
+   field exactly matches `sentry_agent.SYNTHETIC_FIXTURES[key]` and
+   differs from the `reason` field.
+
+2. `static/app.js`: `loadIncident()` now calls `renderEvidence(d)`
+   immediately after `renderIncident()`, so the Evidence tab is
+   populated on initial incident selection before any action. Both
+   `loadIncident()` and `reloadIncident()` call `refreshEvidenceSelector()`
+   to keep the selector's status text current after approve/release/stop.
+
+### Tests
+- `TestInboxLogField` (3 tests) in `tests/test_inbox_integration.py`:
+  entry has a log field; log matches fixture exactly; log is distinct
+  from model reasoning (uses a sentinel to prove separation).
+- Full mock suite: **195 passed** (192 prior + 3 new).
+
+### Status after checkpoint 20
+- Committed locally; NOT pushed.
+- Paused.
