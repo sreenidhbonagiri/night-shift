@@ -9,7 +9,7 @@
 <body>
 <header class="app-header">
   <div class="brand">
-    <span class="mark">Night<span>Shift</span></span>
+    <span class="mark">Night Shift</span>
   </div>
   <nav class="tabs" role="tablist">
     <button class="tab-btn active" data-tab="inbox" role="tab" aria-selected="true">Inbox</button>
@@ -18,15 +18,15 @@
   </nav>
   <details class="demo-badge">
     <summary>Local demo</summary>
-    <div style="position:absolute;right:24px;top:48px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:280px;font-size:.82rem;color:var(--muted);z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.3)">
-      <strong style="color:var(--text);display:block;margin-bottom:6px">Demonstration limits</strong>
-      <ul style="list-style:none;padding:0">
-        <li style="margin:4px 0">Synthetic inputs only — no real incidents</li>
-        <li style="margin:4px 0">Fault injection is intentional on attempt 1</li>
-        <li style="margin:4px 0">Jinja2 3.1.4 is a historical target, not current-security</li>
-        <li style="margin:4px 0">All services bind to 127.0.0.1</li>
-        <li style="margin:4px 0">Human approval is unauthenticated (local demo)</li>
-        <li style="margin:4px 0">Evidence reads are orchestrator-selected</li>
+    <div style="position:absolute;right:16px;top:52px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:10px;min-width:260px;font-size:.78rem;color:var(--text-secondary);z-index:100">
+      <strong style="color:var(--text);display:block;margin-bottom:4px">Demonstration limits</strong>
+      <ul style="list-style:none;padding:0;margin:0">
+        <li style="margin:3px 0">Synthetic inputs only — no real incidents</li>
+        <li style="margin:3px 0">Fault injection is intentional on attempt 1</li>
+        <li style="margin:3px 0">Jinja2 3.1.4 is a historical target, not current-security</li>
+        <li style="margin:3px 0">All services bind to 127.0.0.1</li>
+        <li style="margin:3px 0">Human approval is unauthenticated (local demo)</li>
+        <li style="margin:3px 0">Evidence reads are orchestrator-selected</li>
       </ul>
     </div>
   </details>
@@ -34,34 +34,35 @@
 
 <div class="status-bar">
   <span class="dot" id="liveDot"></span>
-  <span id="statusText">Ready — analyze the inbox to begin.</span>
+  <span id="statusText">Ready</span>
 </div>
 
 <main class="app-main">
 
 <!-- ============ INBOX TAB ============ -->
 <section class="tab-panel active" id="tab-inbox" role="tabpanel">
-  <div class="panel">
-    <h2>Synthetic inbox</h2>
-    <p class="kicker" style="margin-bottom:12px">Analyzes a fixed batch of five synthetic signals with real Sentry classification. Only a signal explicitly connected to the affected dependency (jinja2 + affected version + trusted advisory) can start the recovery workflow.</p>
-    <div class="controls">
-      <button class="btn primary" id="btnAnalyzeInbox">Analyze synthetic inbox</button>
-    </div>
+  <h1 class="page-title">Inbox</h1>
+  <p class="page-subtitle">Review signals. Verify patches. Approve the release.</p>
+
+  <div class="controls" style="margin-bottom:20px">
+    <button class="btn primary" id="btnAnalyzeInbox">Analyze inbox</button>
+    <span class="badge neutral">Synthetic demo</span>
   </div>
 
-  <div id="inboxStates">
-    <div class="panel empty-state" id="inboxEmpty">
-      No signals analyzed yet. Click <strong>Analyze synthetic inbox</strong> to start.
+  <div class="section">
+    <div id="inboxStates">
+      <div class="empty-state" id="inboxEmpty">
+        <div style="font-size:1.4rem;margin-bottom:6px;color:var(--text-muted)">&#x1F4E5;</div>
+        <p style="font-weight:500;color:var(--text-secondary);margin-bottom:4px">Ready for the next signal</p>
+        <p class="kicker">Analysis runs five synthetic signals with real Sentry classification.</p>
+      </div>
+      <div class="loading-state hidden" id="inboxLoading">
+        <span class="spinner"></span> Analyzing 5 synthetic signals&hellip; (synchronous, indeterminate duration)
+      </div>
+      <div class="error-state hidden" id="inboxError"></div>
     </div>
-    <div class="panel loading-state hidden" id="inboxLoading">
-      <span class="spinner"></span> Analyzing 5 synthetic signals… (synchronous, indeterminate duration)
-    </div>
-    <div class="panel error-state hidden" id="inboxError"></div>
-  </div>
 
-  <div id="inboxResultsWrap" class="hidden">
-    <div class="panel">
-      <h2>Signal results</h2>
+    <div id="inboxResultsWrap" class="hidden">
       <div class="metric-row" id="inboxMetrics" style="margin-bottom:12px"></div>
       <div class="tablewrap">
         <table id="inboxTable">
@@ -76,17 +77,17 @@
           <tbody id="inboxTableBody"></tbody>
         </table>
       </div>
+      <details style="margin-top:10px">
+        <summary>Evaluation diagnostics &mdash; expected vs. actual</summary>
+        <div id="inboxEval"></div>
+      </details>
     </div>
-    <details>
-      <summary>Evaluation diagnostics — expected vs. actual</summary>
-      <div id="inboxEval"></div>
-    </details>
   </div>
 
   <details>
-    <summary>Demo tools — standalone recovery and quick triage</summary>
-    <div class="panel" style="margin-top:8px;border:0;padding:0">
-      <div class="controls" style="margin-bottom:10px">
+    <summary>Demo tools &mdash; standalone recovery and quick triage</summary>
+    <div style="margin-top:8px">
+      <div class="controls" style="margin-bottom:8px">
         <button class="btn secondary sm" id="btnRunWorkflow">Run standalone recovery</button>
         <button class="btn secondary sm" id="btnTriageActionable">Triage: actionable</button>
         <button class="btn secondary sm" id="btnTriageBenign">Triage: benign</button>
@@ -99,7 +100,7 @@
 
 <!-- ============ INCIDENT TAB ============ -->
 <section class="tab-panel" id="tab-incident" role="tabpanel">
-  <div class="panel empty-state" id="incidentEmpty">
+  <div class="empty-state" id="incidentEmpty">
     Select a signal from the Inbox to inspect its incident detail.
   </div>
   <div id="incidentContent" class="hidden"></div>
@@ -107,18 +108,19 @@
 
 <!-- ============ EVIDENCE TAB ============ -->
 <section class="tab-panel" id="tab-evidence" role="tabpanel">
-  <div class="panel">
-    <h2>Evidence and export</h2>
-    <p class="kicker" style="margin-bottom:12px">Detailed evidence for the selected incident: test results, tool reads, raw model responses (untrusted text), advisory sources, and JSON export.</p>
+  <h1 class="page-title">Evidence</h1>
+  <p class="page-subtitle">Test results, tool reads, model outputs, and export for the selected incident.</p>
+
+  <div class="section">
     <div class="controls" style="margin-bottom:12px">
-      <select id="evidenceIncidentSelect" class="btn secondary" style="min-width:300px">
-        <option value="">Select incident…</option>
+      <select id="evidenceIncidentSelect" class="btn secondary" style="min-width:280px">
+        <option value="">Select incident&hellip;</option>
       </select>
       <button class="btn primary" id="btnExport" disabled>Export evidence JSON</button>
     </div>
-    <div class="metric-row" style="margin-bottom:12px">
-      <div class="metric"><span class="label">Recovery timing</span><div class="value" id="evidRecoveryTiming">—</div></div>
-      <div class="metric"><span class="label">Total inbox time</span><div class="value" id="evidInboxTiming">—</div></div>
+    <div class="metric-row">
+      <div class="metric"><span class="label">Recovery timing</span><div class="value" id="evidRecoveryTiming">&mdash;</div></div>
+      <div class="metric"><span class="label">Total inbox time</span><div class="value" id="evidInboxTiming">&mdash;</div></div>
     </div>
   </div>
   <div id="evidenceContent"></div>

@@ -327,7 +327,7 @@ def export_incident(incident_id: str):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    with open(os.path.join(_templates_dir, "index.html")) as f:
+def index(request: Request):
+    with open(os.path.join(_templates_dir, "index.html"), "r", encoding="utf-8") as f:
         return f.read()
 

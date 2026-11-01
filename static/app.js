@@ -240,23 +240,26 @@ async function loadIncident(incidentId, signal) {
 
 function renderNonRemediationSignal(signal) {
   $('incidentEmpty').classList.add('hidden');
+  $('incidentContent').classList.remove('hidden');
   const pe = signal.patch_eligibility || {};
   const isHandoff = signal.policy_route === 'human_review';
   const handoff = (state.inboxData.handoffs || []).find(h => h.log_key === signal.log_key);
 
-  let html = `<div class="panel">
-    <h2>Signal: ${esc(signal.log_key)}</h2>
-    <div class="metric-row" style="margin-bottom:12px">
-      ${metric('Disposition', DISP_LABELS[signal.disposition] || signal.disposition)}
-      ${metric('Policy route', ROUTE_LABELS[signal.policy_route] || signal.policy_route)}
-      ${metric('Patch-eligible', pe.eligible ? 'Yes' : 'No')}
-    </div>`;
+  let html = `<h1 class="page-title">${esc(signal.description || signal.log_key)}</h1>
+  <p class="page-subtitle">${esc(signal.log_key)} &middot; ${esc(DISP_LABELS[signal.disposition] || signal.disposition)} &middot; ${esc(ROUTE_LABELS[signal.policy_route] || signal.policy_route)}</p>`;
+
+  html += `<div class="metric-row" style="margin-bottom:16px">
+    ${metric('Disposition', DISP_LABELS[signal.disposition] || signal.disposition)}
+    ${metric('Policy route', ROUTE_LABELS[signal.policy_route] || signal.policy_route)}
+    ${metric('Patch-eligible', pe.eligible ? 'Yes' : 'No')}
+  </div>`;
 
   // Show policy override reason FIRST if present (not model explanation)
   if (signal.policy_override) {
-    html += `<div class="notice warn"><strong>Policy decision:</strong> ${esc(signal.policy_override)}</div>`;
+    html += `<div class="notice warn" style="margin-bottom:12px"><strong>Policy decision:</strong> ${esc(signal.policy_override)}</div>`;
   }
-  html += `<h3>Original log</h3><pre>${esc(signal.log || '—')}</pre>`;
+
+  html += `<div class="section"><h3>Original log</h3><pre>${esc(signal.log || '—')}</pre></div>`;
 
   // Model reasoning separately accessible
   if (signal.reason) {
@@ -267,13 +270,10 @@ function renderNonRemediationSignal(signal) {
   }
 
   if (isHandoff && handoff) {
-    html += `<div class="notice"><strong>Human review handoff</strong><br><small>Attempts: 0 · Timing: null (no patch attempted)</small></div>`;
+    html += `<div class="notice" style="margin-top:10px"><strong>Human review handoff</strong><br><small>Attempts: 0 · Timing: null (no patch attempted)</small></div>`;
   }
 
-  html += '</div>';
   $('incidentContent').innerHTML = html;
-  $('incidentContent').classList.remove('hidden');
-  $('incidentEmpty').classList.add('hidden');
 }
 
 function renderIncident(d, signal) {
@@ -360,18 +360,18 @@ function renderIncident(d, signal) {
   // Signal context
   let signalHtml = '';
   if (signal) {
-    signalHtml = `<div class="panel"><h2>Selected signal: ${esc(signal.log_key)}</h2>`;
+    signalHtml = `<div class="section"><h3>Selected signal: ${esc(signal.log_key)}</h3>`;
     if (signal.policy_override) {
       signalHtml += `<div class="notice warn"><strong>Policy decision:</strong> ${esc(signal.policy_override)}</div>`;
     }
-    signalHtml += `<details><summary>Model assessment (unvalidated text)</summary><pre>${esc(signal.reason || '—')}</pre></details></div>`;
+    signalHtml += `<details style="margin-top:6px"><summary>Model reasoning (unvalidated)</summary><pre>${esc(signal.reason || '—')}</pre></details></div>`;
   }
 
   // Staging results
   let stagingHtml = '';
   if (d.staging_release) {
     const sr = d.staging_release;
-    stagingHtml = `<div class="panel"><h2>Local staging</h2>`;
+    stagingHtml = `<div class="section"><h3>Local staging</h3>`;
     if (sr.health) {
       stagingHtml += `<div class="metric-row" style="margin-bottom:8px">${metric('Health', sr.health.status || '—', 'good')}${metric('Jinja2', sr.health.jinja2 || '—')}${metric('MarkupSafe', sr.health.MarkupSafe || '—')}</div>`;
     }
@@ -384,53 +384,54 @@ function renderIncident(d, signal) {
       stagingHtml += '</tbody></table></div>';
     }
     if (d.status === 'staging_stopped') {
-      stagingHtml += `<div class="notice"><strong>Staging stopped.</strong> Process terminated, directory cleaned.</div>`;
+      stagingHtml += `<div class="notice" style="margin-top:8px"><strong>Staging stopped.</strong> Process terminated, directory cleaned.</div>`;
     }
     stagingHtml += '</div>';
   }
 
   // Full event/evidence details
-  let detailHtml = '<div class="panel"><h2>Event detail</h2>';
+  let detailHtml = '<div class="section"><h3>Event detail</h3>';
   for (const a of attempts) {
     const eng = a.engineer || {};
     const inv = eng.investigation || {};
-    detailHtml += `<h3>Attempt ${esc(a.attempt)} ${eng.fault_injection ? badge('Fault injection', 'bad') : ''}</h3>`;
+    detailHtml += `<details style="margin:6px 0"><summary>Attempt ${esc(a.attempt)} ${eng.fault_injection ? badge('Fault injection', 'bad') : ''}</summary>`;
     if (inv.evidence_collection) detailHtml += `<div class="notice"><strong>Evidence collection:</strong> ${esc(inv.evidence_collection.selected_by || 'Recorded reads')}</div>`;
     if (a.verification) {
       detailHtml += `<details><summary>QA verification detail</summary>${textPre(a.verification)}</details>`;
     }
     if (eng.raw) detailHtml += `<details><summary>Raw Engineer model output (untrusted text)</summary>${textPre(eng.raw)}</details>`;
     if (a.qa?.raw) detailHtml += `<details><summary>Raw QA model output (untrusted text)</summary>${textPre(a.qa.raw)}</details>`;
+    detailHtml += '</details>';
   }
   if (d.human_approval) detailHtml += `<details><summary>Human approval record</summary>${textPre(d.human_approval)}</details>`;
   if (d.staging_release) detailHtml += `<details><summary>Staging release record</summary>${textPre(d.staging_release)}</details>`;
   detailHtml += '</div>';
 
   $('incidentContent').innerHTML = `
-    ${signalHtml}
-    <div class="panel">
-      <h2>Recovery incident</h2>
-      <div class="metric-row" style="margin-bottom:12px">
-        ${metric('Status', statusLabel(status), staged ? 'good' : status === 'staging_stopped' ? 'good' : '')}
-        ${metric('Alert → tested patch', formatMs(d.elapsed_alert_to_tested_patch_ms), 'good')}
-        ${metric('Attempts', attempts.length)}
-      </div>
-      ${timelineHtml}
-      <div class="controls" style="margin:12px 0">
-        ${primaryBtn}
-        <button class="btn secondary sm" id="btnRefresh">Refresh</button>
-      </div>
-      <details><summary>Simulation (demo tool — secondary)</summary>
-        <div class="controls" style="margin-top:8px">
+    <h1 class="page-title">${esc(signal?.description || d.log_key || 'Recovery incident')}</h1>
+    <p class="page-subtitle">${esc(d.log_key || '—')} &middot; ${esc(statusLabel(status))}</p>
+    <div class="metric-row" style="margin-bottom:14px">
+      ${metric('Status', statusLabel(status), staged ? 'good' : status === 'staging_stopped' ? 'good' : '')}
+      ${metric('Alert → tested patch', formatMs(d.elapsed_alert_to_tested_patch_ms), 'good')}
+      ${metric('Attempts', attempts.length)}
+    </div>
+    <div class="controls" style="margin-bottom:14px">
+      ${primaryBtn}
+      <button class="btn secondary sm" id="btnRefresh">Refresh</button>
+      <details class="demo-badge" style="margin-left:auto">
+        <summary>Simulation</summary>
+        <div style="position:absolute;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px;min-width:200px;z-index:100">
           <button class="btn secondary sm" id="btnSimulate" disabled>Record simulation only</button>
         </div>
       </details>
     </div>
+    <div class="section"><h3>Workflow</h3>${timelineHtml}</div>
+    ${signalHtml}
     <div class="incident-layout">
-      <div class="panel"><h2>Patch review</h2>${diffHtml}</div>
-      <div class="panel"><h2>QA summary</h2>${qaHtml}</div>
-      <div class="panel full">${stagingHtml}</div>
-      <div class="panel full">${detailHtml}</div>
+      <div class="section"><h3>Patch review</h3>${diffHtml}</div>
+      <div class="section"><h3>QA verdict</h3>${qaHtml}</div>
+      <div class="section full">${stagingHtml}</div>
+      <div class="section full">${detailHtml}</div>
     </div>
   `;
 
@@ -565,7 +566,7 @@ function renderEvidence(d) {
   // Advisory sources
   const sentry = (d.events || []).find(e => e.agent === 'sentry') || {};
   if (sentry.advisory_metadata) {
-    html += '<div class="panel"><h2>Advisory sources (trusted)</h2>';
+    html += '<div class="section"><h3>Advisory sources (trusted)</h3>';
     for (const [cve, meta] of Object.entries(sentry.advisory_metadata)) {
       html += `<details><summary>${esc(cve)} — ${esc(meta.description || '')}</summary>
         <p class="kicker">GHSA: ${esc(meta.ghsa || '—')} · Affected: ${esc(meta.affected_versions || '—')} · Patched: ${esc(meta.patched_version || '—')}</p>
@@ -580,7 +581,7 @@ function renderEvidence(d) {
     const eng = a.engineer || {};
     const inv = eng.investigation || {};
     const v = a.verification || {};
-    html += `<div class="panel"><h2>Attempt ${esc(a.attempt)} ${eng.fault_injection ? badge('Fault injection', 'bad') : ''}</h2>`;
+    html += `<div class="section"><h3>Attempt ${esc(a.attempt)} ${eng.fault_injection ? badge('Fault injection', 'bad') : ''}</h3>`;
     if (inv.tool_calls?.length) {
       html += `<details><summary>Orchestrator-selected evidence reads</summary>${textPre(inv.tool_calls)}</details>`;
     }
@@ -610,13 +611,13 @@ function renderEvidence(d) {
   }
 
   if (d.human_approval) {
-    html += `<div class="panel"><h2>Human approval</h2>${textPre(d.human_approval)}</div>`;
+    html += `<div class="section"><h3>Human approval</h3>${textPre(d.human_approval)}</div>`;
   }
   if (d.staging_release) {
-    html += `<div class="panel"><h2>Staging release</h2>${textPre(d.staging_release)}</div>`;
+    html += `<div class="section"><h3>Staging release</h3>${textPre(d.staging_release)}</div>`;
   }
 
-  $('evidenceContent').innerHTML = html || '<div class="panel empty-state">No evidence available for this incident.</div>';
+  $('evidenceContent').innerHTML = html || '<div class="empty-state">No evidence available for this incident.</div>';
 }
 
 $('btnExport').onclick = () => {

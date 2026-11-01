@@ -1848,3 +1848,26 @@ $ python -m pytest tests/ -q
 ### Status after checkpoint 20
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 21 — matte-black professional refinement
+
+- Refined Night Shift UI into sleek matte-black engineering product:
+  - Palette: main #0B0B0C, header #111113, raised #171719, borders #27272A.
+  - Text: primary #F4F4F5, secondary #A1A1AA, muted #71717A.
+  - Controls: off-white bg with near-black text, reserved green/amber/red for statuses.
+- Layout & typography tightened for precision, consistency, and readability.
+- App shell compact: monochrome wordmark, compact nav tabs, subtle demo disclosure.
+- Status bar integrated unobtrusively within header, no wide strip.
+- Centered workspace (~1160px) with balanced spacing and no excess nested cards.
+- Inbox: single surface (no extras), combined empty and explanatory state, single primary action, subdued labels, quiet IDs, evaluation in expandable section.
+- Incident: clear title, status, next action; central diff & QA summary in matte editor style; concise timeline; collapsed raw evidence;
+  one prominent primary action; staging health/smoke/stopped accurately displayed.
+- Evidence: compact incident selector, clear timing labels, consistent self-describing disclosures.
+- Interaction: preserved loading/error/empty states, no fake progress, respects prefers-reduced-motion,
+  full accessibility and keyboard support.
+- Verification:
+  - 195 passed mock tests (incl. 34 inbox, 9 integration), 2 new Layout screenshots match design tokens.
+  - Honest limitation: no browser tool clicks; full live journey via UI unconfirmed here.
+
+- Committed locally; NOT pushed.
+- Paused.
