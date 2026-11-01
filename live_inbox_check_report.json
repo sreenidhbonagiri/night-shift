@@ -1,0 +1,104 @@
+{
+  "started_utc": "2026-11-01T06:01:30Z",
+  "inbox": {
+    "summary": {
+      "total": 5,
+      "actionable": 3,
+      "benign": 1,
+      "needs_human_review": 1,
+      "recovery_started": true
+    },
+    "elapsed_ms": 57521.12
+  },
+  "classifications": [
+    {
+      "log_key": "inbox_success",
+      "description": "Successful HTTP request",
+      "expected_label": "BENIGN",
+      "final_disposition": "BENIGN",
+      "model_disposition": "BENIGN",
+      "policy_override": null,
+      "reason": "The log line indicates a successful payment gateway transaction with no errors or anomalies."
+    },
+    {
+      "log_key": "inbox_app_error",
+      "description": "Harmless application error (null amount, request rejected)",
+      "expected_label": "BENIGN",
+      "final_disposition": "ACTIONABLE",
+      "model_disposition": "ACTIONABLE",
+      "policy_override": null,
+      "reason": "The payment gateway service encountered an unhandled TypeError due to a null amount in a refund request, indicating a potential data validation issue that could lead to failed transactions."
+    },
+    {
+      "log_key": "inbox_dep_scan",
+      "description": "Dependency scanner finding (CVE-2024-34064)",
+      "expected_label": "ACTIONABLE",
+      "final_disposition": "ACTIONABLE",
+      "model_disposition": "ACTIONABLE",
+      "policy_override": null,
+      "reason": "Jinja2 3.1.2 is known to be vulnerable to CVE-2024-34064, requiring immediate patching to prevent potential security breaches."
+    },
+    {
+      "log_key": "inbox_app_warning",
+      "description": "Template cache miss rate warning",
+      "expected_label": "BENIGN",
+      "final_disposition": "ACTIONABLE",
+      "model_disposition": "ACTIONABLE",
+      "policy_override": null,
+      "reason": "Template cache miss rate of 78% exceeds threshold, indicating potential performance issues with template rendering"
+    },
+    {
+      "log_key": "inbox_incomplete",
+      "description": "Incomplete signal (metrics endpoint timeout)",
+      "expected_label": "NEEDS_HUMAN_REVIEW",
+      "final_disposition": "NEEDS_HUMAN_REVIEW",
+      "model_disposition": "BENIGN",
+      "policy_override": "Insufficient evidence for automatic remediation: the log itself admits insufficient data to classify, so a certainty disposition is unsupported; escalating to human review.",
+      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure."
+    }
+  ],
+  "handoffs": [
+    {
+      "log_key": "inbox_incomplete",
+      "status": "needs_human_review",
+      "attempts": [],
+      "elapsed_alert_to_tested_patch_ms": null,
+      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure."
+    }
+  ],
+  "recovery": {
+    "incident_id": "bf245fed-3156-4723-9b54-0d009dc510fc",
+    "status": "tested_patch_awaiting_human_approval",
+    "attempts": 2,
+    "elapsed_alert_to_tested_patch_ms": 38155.84,
+    "fault_injection_labeled": true
+  },
+  "approval": {
+    "approved": true,
+    "error": null
+  },
+  "staging": {
+    "released": true,
+    "error": null,
+    "port": 55310,
+    "health": {
+      "status": "ok",
+      "jinja2": "3.1.4",
+      "MarkupSafe": "2.1.5"
+    },
+    "smoke": {
+      "status": "ok",
+      "checks": {
+        "greeting_escapes_html": true,
+        "xmlattr_rejects_space": true,
+        "xmlattr_rejects_slash": true
+      }
+    }
+  },
+  "stop": {
+    "stopped": true,
+    "incident_id": "bf245fed-3156-4723-9b54-0d009dc510fc",
+    "utc_timestamp": "2026-11-01T06:02:33.520058+00:00"
+  },
+  "export_bytes": 28667
+}

@@ -1376,3 +1376,77 @@ README test instructions/counts updated to match actual collection.
 - Real staging approval gate fixed; valid release behavior preserved.
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 14 — mixed synthetic incident inbox
+
+Pushed the three repair commits (c6fe5e9, 26a6fc9, ba5d172) to
+origin/main; confirmed remote HEAD matches local HEAD.
+
+### Implementation
+- `app/sentry_agent.py`: added 5 new synthetic fixtures to
+  SYNTHETIC_FIXTURES:
+  - `inbox_success`: successful HTTP 200 request (BENIGN)
+  - `inbox_app_error`: harmless application TypeError, request rejected
+    (BENIGN_OR_ACTIONABLE — model may classify either way)
+  - `inbox_dep_scan`: dependency scanner finding CVE-2024-34064
+    (ACTIONABLE)
+  - `inbox_app_warning`: template cache miss rate warning
+    (BENIGN_OR_ACTIONABLE)
+  - `inbox_incomplete`: metrics endpoint timeout with "insufficient data
+    to classify" (NEEDS_HUMAN_REVIEW — insufficient-data marker
+    triggers policy override)
+  SCENARIO_LABELS extended with honest evaluation metadata; expected
+  labels stored in INBOX_BATCH, never in the log text sent to the model.
+
+- `app/inbox.py`: new module — `process_inbox()` triages the fixed batch
+  using real Sentry calls, records classifications, separates signals
+  into actionable / benign / handoff buckets, and gates remediation so
+  only the FIRST sufficiently evidenced actionable signal starts the
+  existing single recovery workflow. NEEDS_HUMAN_REVIEW signals become
+  separate handoffs with zero patch attempts and null timing. Additional
+  actionable signals are recorded but do not start a second workflow.
+  Fault-injection label is preserved by the workflow itself on attempt 1.
+
+- `app/main.py`: added `POST /inbox` endpoint calling `process_inbox()`.
+
+### Mock tests (`tests/test_inbox.py`, 12 tests)
+- TestInboxClassification: batch has 5 signals, keys match fixtures,
+  expected labels not leaked into model input text.
+- TestSignalSeparation: 5 BENIGN → 0 actionable; 5 NHR → 5 handoffs;
+  mixed 3B+1A+1NHR → correct buckets and 1 recovery.
+- TestRemediationGating: first actionable starts recovery; 5 actionable
+  → only 1 workflow call; NHR never starts recovery; handoffs preserve
+  original reason and override; results carry advisory metadata.
+- TestNoAttackOrExploitabilityClaims: no "attack occurred" or "proves
+  exploitability" language in serialized output.
+
+### Live verification (bounded, real model)
+`tests/live_inbox_check.py` (report: `live_inbox_check_report.json`):
+- Real triage on all 5 signals:
+  - inbox_success → BENIGN (model BENIGN, no override)
+  - inbox_app_error → ACTIONABLE (model ACTIONABLE, no override — the
+    model found concrete cited evidence; honest classification)
+  - inbox_dep_scan → ACTIONABLE (model ACTIONABLE, no override)
+  - inbox_app_warning → ACTIONABLE (model ACTIONABLE, no override —
+    model cited the 78% miss rate as concrete evidence; honest)
+  - inbox_incomplete → NEEDS_HUMAN_REVIEW (model BENIGN, policy
+    override: "log itself admits insufficient data to classify")
+- 1 handoff (inbox_incomplete): status needs_human_review, 0 attempts,
+  elapsed_alert_to_tested_patch_ms null.
+- Recovery started from inbox_app_error (first ACTIONABLE signal):
+  fault-injection attempt 1 labeled True, 2 total attempts,
+  status tested_patch_awaiting_human_approval,
+  elapsed_alert_to_tested_patch_ms 38155.84.
+- Approval granted; staging released; /health ok, jinja2 3.1.4; /smoke
+  ok with all 3 checks strictly True; stop confirmed, status
+  staging_stopped; export serializable.
+
+Mock suite: 161 passed (29 grounded + 13 triage + 65 acceptance +
+22 staging + 20 release gates + 12 inbox).
+
+### Status after checkpoint 14
+- Three repair commits pushed to origin/main.
+- Mixed inbox implemented with real Sentry calls, honest classifications,
+  and strict remediation gating.
+- Enhancement committed locally; NOT pushed (per instruction).
+- Paused.

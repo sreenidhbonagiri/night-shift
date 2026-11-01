@@ -214,6 +214,18 @@ def triage_endpoint(log_key: str):
     return triage(log_key)
 
 
+@app.post("/inbox")
+def inbox_endpoint():
+    """Process the mixed synthetic incident inbox.
+
+    Triages a fixed batch of signals and, if one is actionable with
+    sufficient evidence, starts the existing recovery workflow.
+    Benign and uncertain signals are recorded as separate handoffs.
+    """
+    from app.inbox import process_inbox
+    return process_inbox()
+
+
 @app.post("/incident/{incident_id}/approve")
 def approve_endpoint(incident_id: str):
     """Record human approval for a specific incident and its verified patch."""

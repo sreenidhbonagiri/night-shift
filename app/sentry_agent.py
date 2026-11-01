@@ -61,12 +61,42 @@ SYNTHETIC_FIXTURES = {
         "service=payment-gateway level=WARN "
         "msg='Possible dependency issue; insufficient data to classify'"
     ),
+    # --- Mixed inbox batch (5 distinct signals) ---
+    "inbox_success": (
+        "[SYNTHETIC] 2024-06-01T12:00:10Z "
+        "service=payment-gateway level=INFO "
+        "msg='HTTP 200 POST /api/charge request_id=abc-123 completed in 142ms'"
+    ),
+    "inbox_app_error": (
+        "[SYNTHETIC] 2024-06-01T12:00:11Z "
+        "service=payment-gateway level=ERROR "
+        "msg='Unhandled TypeError in /api/refund — null amount; request rejected, no data loss'"
+    ),
+    "inbox_dep_scan": (
+        "[SYNTHETIC] 2024-06-01T12:00:12Z "
+        "service=payment-gateway level=ERROR "
+        "msg='Dependency scanner detected Jinja2 3.1.2 affected by CVE-2024-34064'"
+    ),
+    "inbox_app_warning": (
+        "[SYNTHETIC] 2024-06-01T12:00:13Z "
+        "service=payment-gateway level=WARN "
+        "msg='Template cache miss rate 78% exceeds threshold — review template rendering paths'"
+    ),
+    "inbox_incomplete": (
+        "[SYNTHETIC] 2024-06-01T12:00:14Z "
+        "service=payment-gateway level=WARN "
+        "msg='Alert source health-check partial: metrics endpoint timed out; insufficient data to classify'"
+    ),
 }
 
 # Scenario labels kept OUT of the log text sent to the model; recorded in
 # the output separately as provenance, never as an expected-answer hint.
-SCENARIO_LABELS = {"actionable": "ACTIONABLE", "benign": "BENIGN",
-                   "ambiguous": "AMBIGUOUS"}
+SCENARIO_LABELS = {
+    "actionable": "ACTIONABLE", "benign": "BENIGN", "ambiguous": "AMBIGUOUS",
+    "inbox_success": "BENIGN", "inbox_app_error": "BENIGN_OR_ACTIONABLE",
+    "inbox_dep_scan": "ACTIONABLE", "inbox_app_warning": "BENIGN_OR_ACTIONABLE",
+    "inbox_incomplete": "NEEDS_HUMAN_REVIEW",
+}
 
 ALLOWED_DISPOSITIONS = {"ACTIONABLE", "BENIGN", "NEEDS_HUMAN_REVIEW"}
 ALLOWED_SEVERITIES = {"CRITICAL", "WARNING", "INFO", "NONE"}
