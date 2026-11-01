@@ -1,0 +1,22 @@
+# environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# secrets
+.env
+*.pem
+*.key
+
+# raw session records (private, never in repo)
+*.events.jsonl
+mel-conversation*.json*
+events/
+
+# runtime artifacts
+artifacts/
+staging/
+*.log
+.pytest_cache/
+=2.0

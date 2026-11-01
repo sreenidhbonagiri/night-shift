@@ -1,0 +1,3 @@
+# Deliberately still-affected version; QA must reject this first proposal.
+jinja2==3.1.2
+MarkupSafe>=2.0
