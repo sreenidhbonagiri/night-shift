@@ -189,8 +189,18 @@ def _release_gate(incident: dict) -> Optional[str]:
     if incident.get("staging_release", {}).get("released"):
         return "This incident already has a recorded staging release."
     approval = incident.get("human_approval")
-    if not approval or not approval.get("approved"):
-        return "Staging release requires explicit human approval first."
+    if not isinstance(approval, dict):
+        return "Staging release requires an explicit human approval record."
+    # approved must be strictly True (bool), not a truthy value like the
+    # string "false" or the integer 1.
+    if approval.get("approved") is not True:
+        return "Staging release requires explicit human approval (approved must be strictly True)."
+    # Approval is non-transferable: the incident_id on the approval record
+    # must exactly match this incident's id.
+    if approval.get("incident_id") != incident.get("id"):
+        return (f"Approval is bound to incident {approval.get('incident_id')!r}, "
+                f"not this incident ({incident.get('id')!r}); approvals are "
+                "non-transferable.")
     if incident.get("status") != "human_approved":
         return (f"Incident status is {incident.get('status')!r}; "
                 "staging release requires human_approved.")

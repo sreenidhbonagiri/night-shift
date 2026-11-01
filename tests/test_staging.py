@@ -151,6 +151,7 @@ class TestReleaseGates(StagingBase):
             },
             "human_approval": {
                 "approved": True, "actor": "forged",
+                "incident_id": "inc-test",
                 "patch": {"package": "jinja2", "version": "3.1.2"},
                 "artifact_sha256": verification["artifact_sha256"],
             },
@@ -203,6 +204,86 @@ class TestReleaseGates(StagingBase):
             self.assertFalse(res2["released"])
             self.assertIn("already", res2["error"])
         staging._processes.clear(); staging._staging_dirs.clear()
+
+
+class TestApprovalGateInRelease(StagingBase):
+    """REGRESSION: the real staging gate (_release_gate, called by
+    staging.release) must reject non-strictly-True approval booleans and
+    mismatched/missing incident IDs. Tests of simulate_deploy alone are
+    insufficient — the real staging boundary is staging.release."""
+
+    def _valid_incident(self):
+        inc, art = self.make_incident(approved=True)
+        return inc, art
+
+    def _assert_no_env_or_process(self, env_mock, start_mock):
+        env_mock.assert_not_called()
+        start_mock.assert_not_called()
+
+    def _run_release_tracked(self, inc):
+        start_patch, _ = self.mock_process()
+        with self.mock_env_ok() as env_mock, start_patch as start_mock, self.mock_http():
+            return staging.release(inc, staging_root=self.staging_root), env_mock, start_mock
+
+    def test_string_false_approval_rejected(self):
+        """REGRESSION: approved="false" (a string) is truthy and passed
+        the old truthiness check; it must be rejected as not strictly True."""
+        inc, _ = self._valid_incident()
+        inc["human_approval"]["approved"] = "false"
+        res, env_mock, start_mock = self._run_release_tracked(inc)
+        self.assertFalse(res["released"])
+        self._assert_no_env_or_process(env_mock, start_mock)
+
+    def test_integer_one_approval_rejected(self):
+        """REGRESSION: approved=1 (an integer) is truthy and passed the
+        old truthiness check; it must be rejected as not strictly True
+        (bool is not int)."""
+        inc, _ = self._valid_incident()
+        inc["human_approval"]["approved"] = 1
+        res, env_mock, start_mock = self._run_release_tracked(inc)
+        self.assertFalse(res["released"])
+        self._assert_no_env_or_process(env_mock, start_mock)
+
+    def test_missing_approval_boolean_rejected(self):
+        """REGRESSION: an approval record with no 'approved' key at all
+        must be rejected."""
+        inc, _ = self._valid_incident()
+        del inc["human_approval"]["approved"]
+        res, env_mock, start_mock = self._run_release_tracked(inc)
+        self.assertFalse(res["released"])
+        self._assert_no_env_or_process(env_mock, start_mock)
+
+    def test_wrong_incident_id_rejected(self):
+        """REGRESSION: an approval bound to a different incident_id must
+        be rejected at the real staging boundary."""
+        inc, _ = self._valid_incident()
+        inc["human_approval"]["incident_id"] = "inc-OTHER"
+        res, env_mock, start_mock = self._run_release_tracked(inc)
+        self.assertFalse(res["released"])
+        self.assertIn("incident", res["error"].lower())
+        self._assert_no_env_or_process(env_mock, start_mock)
+
+    def test_missing_incident_id_rejected(self):
+        """REGRESSION: an approval record with no incident_id must be
+        rejected (non-transferable)."""
+        inc, _ = self._valid_incident()
+        del inc["human_approval"]["incident_id"]
+        res, env_mock, start_mock = self._run_release_tracked(inc)
+        self.assertFalse(res["released"])
+        self.assertIn("incident", res["error"].lower())
+        self._assert_no_env_or_process(env_mock, start_mock)
+
+    def test_valid_approval_still_releases(self):
+        """Preserve valid release behavior: a strictly-True, incident-bound
+        approval must still release successfully."""
+        inc, _ = self._valid_incident()
+        with self.mock_env_ok():
+            pm, proc = self.mock_process()
+            with pm, self.mock_http():
+                res = staging.release(inc, staging_root=self.staging_root)
+        self.assertTrue(res["released"], res)
+        self.assertEqual(inc["status"], "staging_released")
+        staging.stop(inc)
 
 
 class TestHealthValidation(StagingBase):

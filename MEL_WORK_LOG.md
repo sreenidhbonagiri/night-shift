@@ -1329,3 +1329,50 @@ Mock suites: 143 passed (29 grounded + 13 triage + 64 acceptance +
   timing, approval/release rejected).
 - Repair commit remains unpushed; new fix committed as an addendum.
 - Paused.
+
+## Checkpoint 13 — real staging approval gate fix
+
+### Reproduction
+Independent retesting of commit 26a6fc9 confirmed most repairs pass,
+including a complete 40.8-second live recovery. However, the approval
+fix was applied to `simulate_deploy` rather than the real staging
+boundary (`staging.release` / `_release_gate`).
+
+The bug: `_release_gate` line 192 used `not approval.get("approved")`
+(truthiness), so the string `"false"` and integer `1` passed. There was
+no `incident_id` check at all — an approval bound to a different
+incident released successfully.
+
+### Fix
+`app/staging.py` `_release_gate`:
+- `approved` must be strictly `True` (bool), not a truthy value.
+- `approval.incident_id` must exactly match `incident.id`
+  (non-transferable).
+- Existing package/version/hash binding, execution-evidence recompute,
+  and manifest rechecks preserved unchanged.
+
+### Regression tests (`tests/test_staging.py` TestApprovalGateInRelease)
+Each exercises `staging.release` itself (not simulate_deploy) and
+asserts invalid approvals invoke neither environment creation
+(`_make_env`) nor process start (`_start`):
+- `test_string_false_approval_rejected` — approved="false"
+- `test_integer_one_approval_rejected` — approved=1
+- `test_missing_approval_boolean_rejected` — no approved key
+- `test_wrong_incident_id_rejected` — incident_id="inc-OTHER"
+- `test_missing_incident_id_rejected` — no incident_id key
+- `test_valid_approval_still_releases` — valid approval still releases
+
+### Verification
+```
+$ python -m pytest tests/ -q
+149 passed in 9.12s
+```
+Collection: 29 grounded + 13 triage + 65 acceptance + 22 staging +
+20 release gates = 149.
+
+README test instructions/counts updated to match actual collection.
+
+### Status after checkpoint 13
+- Real staging approval gate fixed; valid release behavior preserved.
+- Committed locally; NOT pushed.
+- Paused.

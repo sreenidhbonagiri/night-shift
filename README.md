@@ -122,14 +122,14 @@ source .venv/bin/activate
 python -m pytest tests/test_grounded_live.py -q          # 29 passed
 
 # Sentry triage: no expected-answer leak, evidence minimums, robust JSON
-python -m pytest tests/test_sentry_triage.py -q           # 11 passed
+python -m pytest tests/test_sentry_triage.py -q           # 13 passed
 
 # Acceptance suite: installer boundary, artifact persistence, JUnit parsing,
 # evidence gates, workflow scenarios, approval gates (all mocked)
-python -m pytest tests/test_mock_acceptance.py -q        # 64 passed
+python -m pytest tests/test_mock_acceptance.py -q        # 65 passed
 
 # Staging lifecycle (mocked)
-python -m pytest tests/test_staging.py -q                # 17 passed
+python -m pytest tests/test_staging.py -q                # 22 passed
 
 # Release and verification gates (mocked)
 python -m pytest tests/test_release_gates.py -q          # 20 passed
