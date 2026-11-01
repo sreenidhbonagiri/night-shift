@@ -136,7 +136,10 @@ python -m pytest tests/test_staging.py -q                # 22 passed
 python -m pytest tests/test_release_gates.py -q          # 20 passed
 
 # Mixed inbox: classification, signal separation, remediation gating (mocked)
-python -m pytest tests/test_inbox.py -q                  # 34 passed — matte-black refinement
+python -m pytest tests/test_inbox.py -q                  # 34 passed
+
+# Git proposal, approval binding, mutation rejection (mocked)
+python -m pytest tests/test_git_proposal.py -q           # 9 passed
 
 # Bounded live checks (real model + real disposable installs — run manually)
 # python tests/live_workflow_check.py
