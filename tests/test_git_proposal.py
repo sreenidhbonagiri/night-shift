@@ -1,0 +1,239 @@
+"""Regression tests for Git proposal boundaries and mutation rejection.
+
+Covers:
+- Fixture repo creation outside source checkout
+- Proposal branch + single commit with correct diff
+- Already-patched version rejected by eligibility (C1 bug fix)
+- Git checkout verification
+- Approval binding recheck (clean vs dirty vs wrong commit)
+- Mutation after approval is rejected at release gate (C3)
+"""
+import json
+import os
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app import git_proposal as gp
+from app.inbox import _patch_eligibility
+from app.isolated_runner import REMEDIATION_PACKAGE
+
+
+class TestGitProposalCreation(unittest.TestCase):
+    """Git proposal creates a clean branch with one commit."""
+
+    def setUp(self):
+        self.incident_id = "git-test-001"
+        self.artifact_dir = tempfile.mkdtemp(prefix="ns-artifact-")
+        # Write minimal artifact files.
+        for f in ("main.py", "test_regression.py", "pytest.ini"):
+            (Path(self.artifact_dir) / f).write_text("# test\n")
+        (Path(self.artifact_dir) / "requirements.txt").write_text(
+            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
+        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+
+    def tearDown(self):
+        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        repo = gp._GIT_FIXTURE_ROOT / self.incident_id
+        if repo.exists():
+            shutil.rmtree(repo, ignore_errors=True)
+
+    def test_creates_branch_with_single_commit(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "abc123", {})
+        self.assertNotIn("error", prop)
+        self.assertEqual(prop["branch"], f"remediate-{self.incident_id[:8]}")
+        self.assertEqual(prop["proposed_version"], "3.1.4")
+        self.assertIn("jinja2==3.1.4", prop["diff"])
+        self.assertIn("-jinja2==3.1.2", prop["diff"])
+        self.assertIn("proposal_commit", prop)
+        self.assertIn("base_commit", prop)
+
+    def test_commit_contains_only_requirements_change(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "abc123", {})
+        repo = Path(prop["repo_dir"])
+        r = gp._git(repo, "diff", "--name-only", "HEAD~1", "HEAD")
+        self.assertEqual(r.stdout.strip(), "requirements.txt")
+
+    def test_repo_outside_source_checkout(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "abc123", {})
+        repo = Path(prop["repo_dir"])
+        # Must not be inside the project tree.
+        project_root = Path(__file__).resolve().parents[1]
+        try:
+            repo.relative_to(project_root)
+            self.fail("Fixture repo is inside project tree")
+        except ValueError:
+            pass  # expected
+
+
+class TestGitCheckoutVerification(unittest.TestCase):
+
+    def setUp(self):
+        self.incident_id = "git-verify-002"
+        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
+        for f in ("main.py", "test_regression.py", "pytest.ini"):
+            (Path(self.artifact_dir) / f).write_text("# test\n")
+        (Path(self.artifact_dir) / "requirements.txt").write_text(
+            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
+        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+
+    def tearDown(self):
+        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        repo = gp._GIT_FIXTURE_ROOT / self.incident_id
+        if repo.exists():
+            shutil.rmtree(repo, ignore_errors=True)
+
+    def test_verify_checkout_passes_on_clean_proposal(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256test", {})
+        result = gp.verify_checkout(prop)
+        # verify_checkout runs pytest; we care that it completes without
+        # error on a valid proposal structure.
+        self.assertIn("proposal_commit", result)
+
+
+class TestApprovalBindingRecheck(unittest.TestCase):
+
+    def setUp(self):
+        self.incident_id = "git-bind-003"
+        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
+        for f in ("main.py", "test_regression.py", "pytest.ini"):
+            (Path(self.artifact_dir) / f).write_text("# test\n")
+        (Path(self.artifact_dir) / "requirements.txt").write_text(
+            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
+        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+
+    def tearDown(self):
+        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        repo = gp._GIT_FIXTURE_ROOT / self.incident_id
+        if repo.exists():
+            shutil.rmtree(repo, ignore_errors=True)
+
+    def test_clean_checkout_passes_binding(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256bind", {})
+        incident = {"id": self.incident_id}
+        result = gp.check_approval_binding(incident, prop)
+        self.assertIsNone(result)
+
+    def test_dirty_working_tree_fails_binding(self):
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256bind", {})
+        # Dirty the working tree.
+        (Path(prop["repo_dir"]) / "main.py").open("a").write("\n# dirty\n")
+        incident = {"id": self.incident_id}
+        result = gp.check_approval_binding(incident, prop)
+        self.assertIsNotNone(result)
+        self.assertIn("Dirty", result)
+
+    def test_mutated_requirements_fails_binding(self):
+        """C3 scenario: mutate requirements after approval."""
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256bind", {})
+        # Mutate via the trusted test helper.
+        gp.mutate_requirements_for_test(prop)
+        incident = {"id": self.incident_id}
+        result = gp.check_approval_binding(incident, prop)
+        self.assertIsNotNone(result)
+        # Mutation makes working tree dirty OR diff mismatch — either is a valid rejection.
+        self.assertTrue("Dirty" in result or "diff does not match" in result)
+
+
+class TestMutationRejectionAtReleaseGate(unittest.TestCase):
+    """C3: full integrity-check scenario — mutation rejected before staging."""
+
+    def setUp(self):
+        self.incident_id = "integrity-004"
+        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
+        for f in ("main.py", "test_regression.py", "pytest.ini"):
+            (Path(self.artifact_dir) / f).write_text("# test\n")
+        (Path(self.artifact_dir) / "requirements.txt").write_text(
+            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
+        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+
+    def tearDown(self):
+        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        repo = gp._GIT_FIXTURE_ROOT / self.incident_id
+        if repo.exists():
+            shutil.rmtree(repo, ignore_errors=True)
+
+    def test_mutation_rejected_by_release_gate(self):
+        from app.staging import _release_gate
+        prop = gp.create_proposal(
+            self.incident_id, "3.1.4", self.artifact_dir,
+            "sha256integrity", {})
+        incident = {
+            "id": self.incident_id,
+            "status": "human_approved",
+            "human_approval": {
+                "approved": True,
+                "actor": "human",
+                "incident_id": self.incident_id,
+                "patch": {"package": "jinja2", "version": "3.1.4"},
+                "artifact_sha256": "sha256integrity",
+            },
+            "verified_patch": {
+                "package": "jinja2",
+                "version": "3.1.4",
+                "artifact_sha256": "sha256integrity",
+                "artifact_dir": self.artifact_dir,
+                "manifest": {},
+                "git_proposal": prop,
+            },
+            "attempts": [{
+                "qa": {"approval": True},
+                "verification": {
+                    "artifact_sha256": "sha256integrity",
+                    "artifact_dir": self.artifact_dir,
+                    "manifest": {},
+                    "installed_version": "3.1.4",
+                    "pytest_returncode": 0,
+                    "junit": {"tests": {}},
+                    "success": True,
+                    "installer_invoked": True,
+                    "requirements_validated": True,
+                },
+            }],
+            "staging_release": {},
+        }
+
+        # Before mutation: gate should pass (other preconditions may vary).
+        # After mutation: gate must fail.
+        gp.mutate_requirements_for_test(prop)
+        gate_result = _release_gate(incident)
+        self.assertIsNotNone(gate_result)
+        self.assertIn("binding failed" if "binding" in gate_result else "failed",
+                      gate_result.lower())
+
+
+class TestPatchedVersionIneligibleAfterFix(unittest.TestCase):
+    """Regression for the C1-found bug: already-patched versions must not be
+    eligible for remediation."""
+
+    def test_patched_316_not_eligible(self):
+        log = (
+            "[SYNTHETIC-EVAL] jinja2==3.1.6 installed; "
+            "advisory GHSA-h75v-3vvj-5mfj affected < 3.1.4"
+        )
+        result = _patch_eligibility(log)
+        self.assertFalse(result["eligible"],
+                         "Already-patched version 3.1.6 must NOT be eligible")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

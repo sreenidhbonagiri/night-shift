@@ -62,13 +62,19 @@ TRUSTED_ADVISORIES = {
 # is verified against primary GitHub Security Advisory sources).
 # Each advisory maps to: (affected_spec, patched_version).
 # affected_spec is a string like "< 3.1.4" parsed by _version_in_range.
-# Keys are lowercase to match TRUSTED_ADVISORIES (the form found in
-# log text after .lower()).
-_ADVISORY_RANGES = {
-    adv.lower(): (sentry_agent.ADVISORY_METADATA[adv]["affected_versions"],
-                  sentry_agent.ADVISORY_METADATA[adv]["patched_version"])
-    for adv in sentry_agent.ADVISORY_METADATA
-}
+# Keys are all known identifiers (CVE and GHSA) to ensure any advisory
+# matched by TRUSTED_ADVISORIES also has a range entry here.
+_ADVISORY_RANGES = {}
+for adv, meta in sentry_agent.ADVISORY_METADATA.items():
+    _ADVISORY_RANGES[adv.lower()] = (
+        meta["affected_versions"], meta["patched_version"]
+    )
+    # Also index by GHSA id if present and different from CVE key.
+    ghsa = meta.get("ghsa", "").lower()
+    if ghsa and ghsa != adv.lower():
+        _ADVISORY_RANGES[ghsa] = (
+            meta["affected_versions"], meta["patched_version"]
+        )
 
 # Pattern: "jinja2 3.1.2" or "Jinja2==3.1.2" or "jinja2-3.1.2" — a
 # version number IMMEDIATELY associated with the package name, not a

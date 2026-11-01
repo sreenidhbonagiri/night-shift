@@ -263,6 +263,25 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
                 verified_attempt["verification"].get("artifact_dir")),
             "installed_version": verified_attempt["verification"].get("installed_version"),
         }
+
+        # Create a Git proposal branch as a concrete, reviewable deliverable.
+        try:
+            from app import git_proposal as gp
+            git_prop = gp.create_proposal(
+                incident_id=incident["id"],
+                version=incident["verified_patch"]["version"],
+                artifact_dir=incident["verified_patch"]["artifact_dir"] or "",
+                artifact_sha256=incident["verified_patch"]["artifact_sha256"] or "",
+                manifest=incident["verified_patch"]["manifest"] or {},
+            )
+            if git_prop and "error" not in git_prop:
+                # QA re-verifies from the actual Git checkout.
+                git_verify = gp.verify_checkout(git_prop)
+                incident["git_proposal"] = {**git_prop, **git_verify}
+            else:
+                incident["git_proposal"] = git_prop or {"error": "Git proposal not created"}
+        except Exception as ex:
+            incident["git_proposal"] = {"error": f"Git proposal error: {ex}"}
         incident["elapsed_alert_to_tested_patch_ms"] = round(
             (time.monotonic() - monotonic_start) * 1000, 2)
         incident["reason"] = "QA-verified patch awaiting explicit human approval."

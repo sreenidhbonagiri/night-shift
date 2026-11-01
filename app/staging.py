@@ -238,6 +238,18 @@ def _release_gate(incident: dict) -> Optional[str]:
     if reason:
         return f"Artifact manifest recheck failed: {reason}"
 
+    # Git proposal binding: if a git_proposal exists, recheck that the
+    # checkout is clean and on the exact approved commit/tree.
+    git_prop = incident.get("git_proposal")
+    if isinstance(git_prop, dict) and "error" not in git_prop:
+        try:
+            from app import git_proposal as gp
+            git_reason = gp.check_approval_binding(incident, git_prop)
+            if git_reason:
+                return f"Git proposal binding failed: {git_reason}"
+        except Exception as ex:
+            return f"Git proposal recheck error: {ex}"
+
     return None
 
 
