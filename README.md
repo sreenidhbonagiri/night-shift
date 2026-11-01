@@ -81,7 +81,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000/` in a browser. The landing page provides product
 context and links to the console at `/app`. The console offers **Analyze inbox**,
 quick triage examples, live progress, the incident workspace (requirements diff,
-verified citations, installed version, test results, artifact identifier),
+location-validated source citations, installed version, test results, artifact identifier),
 approval and local-staging controls, and a download button for the full evidence
 export.
 

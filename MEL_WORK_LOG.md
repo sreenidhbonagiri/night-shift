@@ -1976,3 +1976,41 @@ $ python -m pytest tests/ -q
 ### Status after checkpoint 25
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 26 — publication preparation and independent verification
+
+### Independent verification (externally performed)
+- Full browser journey passed end-to-end: landing → inbox → rejected
+  fault-injection patch → verified correction → approval → local staging
+  health/smoke → stop → matching evidence.
+- After the export correction (JSONResponse + Content-Disposition),
+  Chrome successfully downloaded genuine incident JSON while keeping the
+  console open. The file parsed and matched the selected incident ID.
+- Updated suite independently passed: **197 tests**.
+- Citation wording confirmed accurate: states location validation only,
+  not semantic support for findings.
+
+### Publication audit of 9 pending commits (origin/main..HEAD)
+1. `791dfc2` Redesign UI into cohesive SPA — clean
+2. `afd8008` Final UI corrections — clean
+3. `881ed71` Add log field, evidence auto-load — clean
+4. `ccef30a` Fix / endpoint handler — clean
+5. `56ecf07` Refine UI: toolbars, 60/40 split — clean
+6. `8e86287` Add landing page at /, move console to /app — clean
+7. `3fa2ac2` Smooth scrolling for nav anchors — clean
+8. `a3669b2` Brand link to landing page — clean
+9. `8df7da5` Export as JSON attachment; citation wording — clean
+
+Audit results:
+- No secrets (AKIA, sk-, ghp_, private keys) in any pending commit.
+- No personal absolute paths in tracked files (9 grep matches were all
+  expected: GitHub links in landing.html, documentation references in
+  MEL_WORK_LOG.md describing what was replaced, and one pre-existing
+  match already in origin/main).
+- No private Mel sessions, runtime evidence, environments, or caches.
+- Private evidence remains outside the repository in night-shift-mel-private/.
+- README updated: routes (/ landing, /app console), citation wording
+  ("location-validated source citations").
+
+### Status after checkpoint 26
+- Committed locally; ready for push to origin/main.
