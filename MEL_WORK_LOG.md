@@ -2409,3 +2409,198 @@ outside the repository in `~/night-shift-mel-private/`.
 - Post-push full suite: 230 passed, 0 failed.
 
 Implementation frozen unless a submission-blocking defect appears.
+
+## Checkpoint 33 — Public deployment feasibility assessment (NOT started)
+
+A submission form requires a deployed working-project URL. This checkpoint
+is an assessment and plan only — no deployment changes have been made, and
+the local application at published commit d115e3d is preserved unchanged.
+
+### Feasibility assessment against the current code
+
+The verified local workflow has five properties that a public deployment
+must satisfy honestly, not by replay:
+
+1. **Local Ollama dependency.** `app/ollama_client.py` calls
+   `http://localhost:11434/api/generate` with `qwen3:4b`, 120 s timeout,
+   temperature 0. The Sentry, Engineer, and QA-approval steps each make
+   real model calls. A public deployment needs a hosted inference
+   endpoint reachable from the execution backend, not from the visitor's
+   browser. The model name and URL are already single-source constants
+   in `ollama_client.py`, so pointing them at a hosted endpoint is a
+   one-place change — but the endpoint must actually serve `qwen3:4b`
+   (or a compatible model) and return the same `/api/generate` JSON
+   shape, or the JSON-parsing and classification gates will fail closed.
+
+2. **In-memory incidents and locks across requests.** `app/main.py`
+   keeps `_incidents`, `_incident_locks`, and `_running_workflows` in
+   module-level dicts guarded by a `threading.Lock`, and runs the
+   workflow on a `threading.Thread`. Vercel serverless functions are
+   stateless and do not share memory across invocations; a workflow
+   started in one function instance cannot be polled or approved from
+   another. A background thread also cannot outlive a serverless
+   invocation. The execution backend must be a persistent process
+   (not serverless) that holds incident state in memory or a store
+   and can run a long-lived workflow thread.
+
+3. **Persisted Git/artifact requirements.** `app/isolated_runner.py`
+   persists patch artifacts to disk and recomputes manifests from bytes.
+   `app/git_proposal.py` creates per-incident fixture Git repositories
+   under a temp root and runs `git` and `subprocess` calls against them.
+   The execution backend must have a writable filesystem that survives
+   across requests for the same incident (so approval can recheck the
+   artifact manifest and Git commit/tree binding that verification
+   produced). Vercel's filesystem is ephemeral per invocation.
+
+4. **Disposable QA environments and staging subprocesses.** QA and Git
+   verification build disposable virtualenvs (`python -m venv`, `pip
+   install`), run `pytest`, and measure installed versions. Staging
+   (`app/staging.py`) starts a real HTTP server process bound to
+   127.0.0.1 and validates `/health` and `/smoke`. These require the
+   ability to create venvs, install pinned packages, spawn
+   subprocesses, and bind local ports — all unavailable in Vercel
+   serverless functions and incompatible with platform restrictions
+   like Fly.io `--no-processes`. The execution backend must be a
+   full Linux host with `python3`, `pip`, `git`, and the ability to
+   bind ephemeral localhost ports.
+
+5. **Public endpoint authentication, incident ownership, concurrency,
+   resource limits.** The local `/approve` and `/staging-release`
+   endpoints are unauthenticated by design. A public deployment must
+   add server-enforced approval and incident ownership, bounded
+   concurrency (the local duplicate-guard allows exactly one running
+   workflow — this must be preserved), timeouts, cleanup of disposable
+   venvs and staging dirs, and spending exposure bounds on the hosted
+   inference endpoint. No vulnerable app is exposed publicly: staging
+   stays private execution with health/smoke results surfaced in the
+   console.
+
+### Preferred architecture: Vercel frontend + separate hosted execution
+
+```
+Browser ──> Vercel (landing + console UI, static files)
+              │
+              └─> Hosted execution backend (persistent FastAPI process)
+                    │  - holds incidents/locks in memory
+                    │  - runs real workflow thread
+                    │  - persists artifacts + Git fixtures to disk
+                    │  - builds disposable venvs, runs pytest
+                    │  - starts private staging on 127.0.0.1
+                    │  - calls hosted inference endpoint (private)
+                    │
+                    └─> Hosted model inference (qwen3:4b or compatible)
+```
+
+The Vercel deployment serves only the landing page (`/`) and console
+(`/app`) as static HTML/JS/CSS. The console's API calls are proxied to
+the hosted execution backend. Inference and execution endpoints stay
+private to the backend; the visitor's browser never reaches Ollama, the
+execution host, or staging directly.
+
+### What can remain unchanged
+
+- The entire verified workflow: `app/workflow.py`, `app/sentry_agent.py`,
+  `app/engineer_agent.py`, `app/qa_agent.py`, `app/isolated_runner.py`,
+  `app/approval.py`, `app/staging.py`, `app/evidence.py`,
+  `app/git_proposal.py`, `app/inbox.py`. No replay, no recorded
+  responses, no replacement of real execution.
+- The exact Git/artifact approval binding and fail-closed release gate.
+- The deterministic evidence evaluator and its strict typing.
+- The frontend HTML/JS/CSS as served static assets.
+- The test suite (230 tests) and the published commit d115e3d.
+
+### Minimum required changes
+
+1. **Configurable inference endpoint.** Make `OLLAMA_URL` and `MODEL`
+   in `app/ollama_client.py` and `app/main.py` read from environment
+   variables (`OLLAMA_URL`, `OLLAMA_MODEL`) with the current localhost
+   defaults preserved. One-place change; local behavior unchanged when
+   env vars are absent.
+2. **Execution-backend API surface.** The existing FastAPI app already
+   exposes `/inbox`, `/workflow`, `/workflow/status/{id}`,
+   `/incident/{id}`, `/incident/{id}/approve`,
+   `/incident/{id}/staging-release`, `/incident/{id}/staging-stop`,
+   `/incident/{id}/staging-status`, `/incidents`, `/export/{id}`,
+   `/triage/{log_key}`. The backend can run the existing app behind a
+   reverse proxy with CORS configured for the Vercel origin. No new
+   endpoints needed for a minimum deployment.
+3. **Vercel static config.** A `vercel.json` or output adapter that
+   serves `templates/landing.html` at `/`, `templates/index.html` at
+   `/app`, and `static/*` at `/static/*`, with API routes rewrites to
+   the execution backend URL (set via a Vercel environment variable).
+4. **Execution-backend host.** A persistent Linux host running the
+   existing `uvicorn app.main:app` with `python3`, `pip`, `git`
+   available, a writable temp directory, and network egress to the
+   inference endpoint. Fly.io, Railway, or a small VPS are candidates.
+5. **Hosted inference.** Either a managed Ollama-compatible endpoint
+   or a cloud model API compatible with the `/api/generate` JSON shape.
+   The model must return JSON in the same structure for the Sentry and
+   Engineer prompts or the existing gates fail closed (which is the
+   correct, honest behavior).
+
+### Account or credential steps I must complete (before provisioning)
+
+- **Vercel:** already have an account. No cost for static hosting on the
+  Hobby plan. I need to install the Vercel CLI (`npm i -g vercel`) or
+  use the dashboard import. Node is NOT currently on this machine's
+  PATH, so the dashboard import path is more practical unless Node is
+  installed.
+- **Execution backend host:** I do NOT currently have Fly.io, Railway,
+  or a VPS configured. Fly.io has a free tier that can run a small
+  persistent process, but it requires `flyctl` (not installed) and a
+  credit card on file for the free-tier allowance. Railway has a free
+  trial with usage limits. A $5/month VPS (e.g. DigitalOcean droplet,
+  Hetzner CX11) is the most predictable option. I need to tell Mel
+  which one to provision and provide any login if one is not already
+  signed in.
+- **Hosted inference:** This is the hardest external dependency.
+  Options, in order of compatibility:
+  (a) Self-hosted Ollama on the execution-backend VPS (free, but needs
+      ~4 GB RAM for `qwen3:4b` and adds ~45 s cold start; the VPS must
+      be at least the `qwen3:4b` size).
+  (b) A managed Ollama-compatible cloud endpoint. There is no widely
+      available free managed Ollama host; paid options exist (e.g.
+      RunPod, Modal, or a GPU VPS) at roughly $0.20–0.50/hour for a
+      small GPU. This is a paid resource I would need to provide.
+  (c) OpenAI/Anthropic API as a substitute model — this requires an
+      API key I provide and a small adapter in `ollama_client.py` to
+      translate the request/response shape, plus re-validation that
+      the substitute model passes the existing JSON/classification
+      gates. Cost: a few cents per recovery run at qwen3-equivalent
+      token volumes.
+  I must choose one and provide any key or account it requires. No
+  credentials should be printed or committed.
+
+### Realistically achievable before the submission deadline?
+
+**Genuinely live workflow (real inference + real QA execution):**
+achievable IF I provide an execution-backend host and a hosted inference
+endpoint. The code changes are small (configurable endpoints + Vercel
+static config + CORS). The external dependencies are the gate: without a
+persistent Linux host and a reachable model endpoint, the verified
+workflow cannot run honestly in public.
+
+**Publicly deployed evidence viewer only (static Vercel, no live
+workflow):** achievable quickly with only the Vercel account, but does
+NOT satisfy the organizer's working-project requirement. It would be a
+landing page and console that shows honest errors when the execution
+backend is unreachable. This is explicitly distinguished from a live
+workflow and would be reported as such.
+
+### Recommendation
+
+Proceed with the preferred architecture only after I confirm the
+execution-backend host and inference choice. The smallest viable path
+that satisfies the working-project requirement is:
+
+1. A $5/month Linux VPS running both Ollama (`qwen3:4b`) and the
+   existing FastAPI app under uvicorn, with `python3`, `pip`, `git`.
+2. Vercel Hobby plan serving the static frontend, proxying API calls to
+   the VPS.
+3. Configurable inference URL/model via env vars; CORS for the Vercel
+   origin; the existing duplicate-guard and per-incident locks
+   preserved as the concurrency bound.
+4. Honest errors when inference or execution is unavailable; no replay.
+
+No implementation has started. The local application at d115e3d is
+preserved. Paused for the account/credential decisions above.
