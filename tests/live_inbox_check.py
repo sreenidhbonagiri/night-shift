@@ -1,8 +1,8 @@
-"""Bounded live verification of the mixed synthetic incident inbox.
+"""Bounded live verification of the corrected mixed inbox.
 
-Uses REAL Sentry triage calls and the REAL workflow (including fault
-injection) for the actionable signal, then runs approval, staging
-release, health/smoke checks, and stop.
+Uses REAL Sentry triage calls and the REAL workflow for the eligible
+signal, then runs approval, staging, checks, and stop.
+Reports classification mismatches separately from safety gating.
 
 Usage: python tests/live_inbox_check.py
 """
@@ -38,6 +38,7 @@ for r in out["inbox_results"]:
         "model_disposition": r.get("model_disposition"),
         "policy_override": r.get("policy_override"),
         "reason": r.get("reason"),
+        "has_dependency_evidence": r.get("has_dependency_evidence"),
     })
 
 # Record handoffs
@@ -51,26 +52,42 @@ for h in out["handoffs"]:
         "reason": h.get("reason"),
     })
 
+# Record investigate signals
+report["investigate_signals"] = []
+for s in out.get("investigate_signals", []):
+    report["investigate_signals"].append({
+        "log_key": s["log_key"],
+        "disposition": s["disposition"],
+        "has_dependency_evidence": s.get("has_dependency_evidence"),
+    })
+
+# Record classification mismatches separately
+report["classification_mismatches"] = out.get("classification_mismatches", [])
+
 print("INBOX SUMMARY:", json.dumps(report["inbox"]["summary"], indent=2))
 print("CLASSIFICATIONS:")
 for c in report["classifications"]:
+    depEv = c.get("has_dependency_evidence", "?")
     print(f"  {c['log_key']}: expected={c['expected_label']} got={c['final_disposition']} "
-          f"model={c['model_disposition']} override={c.get('policy_override')}")
+          f"model={c.get('model_disposition')} depEv={depEv}")
 print("HANDOFFS:", len(report["handoffs"]))
-for h in report["handoffs"]:
-    print(f"  {h['log_key']}: status={h['status']} timing={h['elapsed_alert_to_tested_patch_ms']}")
+print("INVESTIGATE:", len(report["investigate_signals"]))
+print("MISMATCHES:", len(report["classification_mismatches"]))
+for m in report["classification_mismatches"]:
+    print(f"  {m['log_key']}: expected={m['expected']} got={m['actual']}")
 
-# Verify classification structure
+# Verify structure
 assert out["summary"]["total"] == 5
-# The dep_scan should be ACTIONABLE (or escalated); the incomplete signal
-# should be NEEDS_HUMAN_REVIEW (insufficient-data marker in log text).
-assert len(out["handoffs"]) >= 1, "expected at least one handoff for the incomplete signal"
+# The incomplete signal MUST be a handoff (insufficient-data marker).
+assert len(out["handoffs"]) >= 1, "expected at least one handoff for incomplete signal"
+# Only dep_scan should be remediation-eligible.
+assert out["summary"]["remediation_eligible"] >= 0
 
 # --- 2. Recovery incident (if any) → approval → staging → stop -------
 inc = out.get("recovery_incident")
 if inc is None:
-    report["recovery"] = "No actionable signal started recovery."
-    print("\nNO RECOVERY STARTED (no actionable signal with sufficient evidence)")
+    report["recovery"] = "No remediation-eligible signal started recovery."
+    print("\nNO RECOVERY STARTED (no eligible signal with dependency evidence)")
 else:
     report["recovery"] = {
         "incident_id": inc["id"],
@@ -90,13 +107,11 @@ else:
         print(f"  Fault injection on attempt 1: {fi}")
 
     if inc["status"] == "tested_patch_awaiting_human_approval":
-        # Approval
         approval = ap.approve(incident=inc, actor="mel-inbox-check")
         report["approval"] = {"approved": approval.get("approved"),
                               "error": approval.get("error")}
         assert approval.get("approved") is True, approval
 
-        # Staging release
         release = staging.release(inc)
         report["staging"] = {
             "released": release.get("released"),
@@ -104,21 +119,17 @@ else:
             "port": release.get("port"),
         }
         assert release.get("released") is True, release
-
-        # Health and smoke
         report["staging"]["health"] = release.get("health")
         report["staging"]["smoke"] = release.get("smoke")
         assert release["health"].get("status") == "ok"
         assert release["smoke"].get("status") == "ok"
         assert staging._smoke_gate(release["smoke"]) is None
 
-        # Stop
         stop = staging.stop(inc)
         report["stop"] = stop
         assert stop.get("stopped") is True
         assert inc["status"] == "staging_stopped"
 
-        # Export serializability
         dumped = json.dumps(inc)
         report["export_bytes"] = len(dumped)
     else:

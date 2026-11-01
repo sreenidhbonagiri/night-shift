@@ -93,8 +93,8 @@ SYNTHETIC_FIXTURES = {
 # the output separately as provenance, never as an expected-answer hint.
 SCENARIO_LABELS = {
     "actionable": "ACTIONABLE", "benign": "BENIGN", "ambiguous": "AMBIGUOUS",
-    "inbox_success": "BENIGN", "inbox_app_error": "BENIGN_OR_ACTIONABLE",
-    "inbox_dep_scan": "ACTIONABLE", "inbox_app_warning": "BENIGN_OR_ACTIONABLE",
+    "inbox_success": "BENIGN", "inbox_app_error": "BENIGN",
+    "inbox_dep_scan": "ACTIONABLE", "inbox_app_warning": "INVESTIGATE",
     "inbox_incomplete": "NEEDS_HUMAN_REVIEW",
 }
 

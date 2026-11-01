@@ -1450,3 +1450,107 @@ Mock suite: 161 passed (29 grounded + 13 triage + 65 acceptance +
   and strict remediation gating.
 - Enhancement committed locally; NOT pushed (per instruction).
 - Paused.
+
+## Checkpoint 15 — corrected mixed-inbox evaluation and remediation gating
+
+### Problems identified in checkpoint 14's inbox (ac74c16)
+1. `inbox_app_error` expected label was broadened to
+   `BENIGN_OR_ACTIONABLE` to accommodate a model mistake. Restored to
+   `BENIGN`; the failed live result is preserved below.
+2. Model disposition was conflated with remediation eligibility — any
+   ACTIONABLE signal started the Jinja2 workflow, even a generic
+   application error.
+3. `process_inbox` discarded its triage result and the workflow
+   re-triaged from scratch via `sentry_fn(log_key)`. The selected
+   signal's evidence did not reach Engineer.
+4. `inbox_app_warning` was labeled `BENIGN_OR_ACTIONABLE` instead of a
+   distinct `INVESTIGATE` category.
+5. `_has_dependency_evidence` checked global `advisory_metadata`
+   (always present for all signals), so every signal appeared
+   dep-evidence-connected.
+6. No dashboard UI for the inbox — API-only was insufficient.
+
+### Fixes
+- `app/sentry_agent.py`: `SCENARIO_LABELS` restored —
+  `inbox_app_error` → `BENIGN`, `inbox_app_warning` → `INVESTIGATE`.
+- `app/inbox.py`:
+  - `INBOX_BATCH` expected labels fixed (`BENIGN`, `INVESTIGATE`).
+  - Added `DEPENDENCY_EVIDENCE_MARKERS` (jinja2, cve-2024-22195,
+    cve-2024-34064, ghsa-*, dependency scanner, affected by).
+  - `_has_dependency_evidence` now checks ONLY the signal's log text
+    for dependency markers — global advisory_metadata is NOT a
+    signal-specific connection.
+  - `process_inbox` separates model disposition from remediation
+    eligibility: ACTIONABLE without dep evidence → `investigate_signals`,
+    not `remediation_eligible`. Only `remediation_eligible` signals
+    start the workflow.
+  - Selected signal's triage result is passed into `run_incident` via
+    `sentry_fn=_bound_sentry_fn` — the workflow does NOT re-triage
+    from scratch; the inbox's selected evidence reaches Engineer.
+  - `classification_mismatches` tracked separately from safety gating.
+- `app/main.py`: added dashboard inbox panel (button, summary metrics,
+  results table, handoffs, mismatches, recovery info) matching existing
+  interface patterns.
+
+### Mock tests (`tests/test_inbox.py`, 19 tests)
+Required focused tests:
+- `test_generic_error_actionable_cannot_trigger_jinja2_remediation` —
+  app error ACTIONABLE without dep evidence does NOT start workflow.
+- `test_unrelated_warning_cannot_authorize_patch` — cache-miss warning
+  ACTIONABLE without dep evidence does NOT authorize patch.
+- `test_selected_evidence_reaches_engineer` — process_inbox passes the
+  selected triage result into run_incident via sentry_fn; calling the
+  bound fn returns the inbox's result, not a re-triage.
+- `test_expected_labels_stored_not_in_fixture_text` +
+  `test_inbox_app_error_expected_label_is_benign` — labels fixed and
+  outside model inputs.
+- `test_only_one_recovery_runs_uncertain_signals_remain_separate` —
+  only one recovery; 4 investigate-only signals don't start workflows.
+Additional: classification, signal separation, handoff preservation,
+advisory connection, mismatch tracking, no-attack-claims.
+
+### Live verification (bounded, real model)
+`tests/live_inbox_check.py` (report: `live_inbox_check_report.json`):
+- Real triage on all 5 signals:
+  - inbox_success → BENIGN (model BENIGN, depEv=False) ✓
+  - inbox_app_error → ACTIONABLE (model ACTIONABLE, depEv=False) ✗
+    MISMATCH: expected BENIGN, got ACTIONABLE. Model mistake, reported
+    as a classification failure. Safety gating worked: depEv=False →
+    investigate, NOT remediation.
+  - inbox_dep_scan → ACTIONABLE (model ACTIONABLE, depEv=True) ✓
+    Only dep-evidence signal → started recovery.
+  - inbox_app_warning → ACTIONABLE (model ACTIONABLE, depEv=False)
+    MISMATCH: expected INVESTIGATE, got ACTIONABLE. Safety gating
+    worked: depEv=False → investigate, NOT remediation.
+  - inbox_incomplete → NEEDS_HUMAN_REVIEW (model BENIGN, policy
+    override: insufficient data marker) ✓ → handoff.
+- Summary: 3 actionable, 1 benign, 1 NHR, 2 investigate, 1
+  remediation-eligible, 1 recovery started, 1 classification mismatch.
+- Recovery: 2 attempts (fault injection labeled True on attempt 1),
+  status tested_patch_awaiting_human_approval, timing 28359.98ms.
+- Approval granted; staging released; /health ok (jinja2 3.1.4);
+  /smoke ok (all 3 checks strictly True); stop confirmed
+  (staging_stopped); export serializable.
+
+### Classification mistakes (reported honestly, separate from gating)
+1. inbox_app_error: expected BENIGN, model said ACTIONABLE. The model
+   treated the TypeError + "request rejected, no data loss" as
+   actionable. Safety gating prevented unauthorized remediation
+   (depEv=False → investigate). This is a model classification failure,
+   not a gating failure.
+2. inbox_app_warning: expected INVESTIGATE, model said ACTIONABLE. The
+   model cited the 78% cache-miss rate as concrete evidence. Safety
+   gating prevented unauthorized remediation (depEv=False → investigate).
+
+### Mock suite
+168 passed (29 grounded + 13 triage + 65 acceptance + 22 staging +
+20 release gates + 19 inbox).
+
+### Status after checkpoint 15
+- Inbox evaluation corrected: expected labels fixed, model disposition
+  separated from remediation eligibility, evidence connection required,
+  selected evidence reaches Engineer, dashboard UI added.
+- 2 classification mistakes reported honestly as failures; safety
+  gating worked correctly in both cases.
+- Enhancement committed locally; NOT pushed.
+- Paused.

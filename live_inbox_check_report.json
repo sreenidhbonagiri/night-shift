@@ -1,14 +1,17 @@
 {
-  "started_utc": "2026-11-01T06:01:30Z",
+  "started_utc": "2026-11-01T06:18:42Z",
   "inbox": {
     "summary": {
       "total": 5,
       "actionable": 3,
       "benign": 1,
       "needs_human_review": 1,
-      "recovery_started": true
+      "investigate": 2,
+      "remediation_eligible": 1,
+      "recovery_started": true,
+      "classification_mismatches": 1
     },
-    "elapsed_ms": 57521.12
+    "elapsed_ms": 51294.51
   },
   "classifications": [
     {
@@ -18,7 +21,8 @@
       "final_disposition": "BENIGN",
       "model_disposition": "BENIGN",
       "policy_override": null,
-      "reason": "The log line indicates a successful payment gateway transaction with no errors or anomalies."
+      "reason": "The log line indicates a successful payment gateway transaction with no errors or anomalies.",
+      "has_dependency_evidence": false
     },
     {
       "log_key": "inbox_app_error",
@@ -27,7 +31,8 @@
       "final_disposition": "ACTIONABLE",
       "model_disposition": "ACTIONABLE",
       "policy_override": null,
-      "reason": "The payment gateway service encountered an unhandled TypeError due to a null amount in a refund request, indicating a potential data validation issue that could lead to failed transactions."
+      "reason": "The payment gateway service encountered an unhandled TypeError due to a null amount in a refund request, indicating a potential data validation issue that could lead to failed transactions.",
+      "has_dependency_evidence": false
     },
     {
       "log_key": "inbox_dep_scan",
@@ -36,16 +41,18 @@
       "final_disposition": "ACTIONABLE",
       "model_disposition": "ACTIONABLE",
       "policy_override": null,
-      "reason": "Jinja2 3.1.2 is known to be vulnerable to CVE-2024-34064, requiring immediate patching to prevent potential security breaches."
+      "reason": "Jinja2 3.1.2 is known to be vulnerable to CVE-2024-34064, requiring immediate patching to prevent potential security breaches.",
+      "has_dependency_evidence": true
     },
     {
       "log_key": "inbox_app_warning",
       "description": "Template cache miss rate warning",
-      "expected_label": "BENIGN",
+      "expected_label": "INVESTIGATE",
       "final_disposition": "ACTIONABLE",
       "model_disposition": "ACTIONABLE",
       "policy_override": null,
-      "reason": "Template cache miss rate of 78% exceeds threshold, indicating potential performance issues with template rendering"
+      "reason": "Template cache miss rate of 78% exceeds threshold, indicating potential performance issues with template rendering",
+      "has_dependency_evidence": false
     },
     {
       "log_key": "inbox_incomplete",
@@ -54,7 +61,8 @@
       "final_disposition": "NEEDS_HUMAN_REVIEW",
       "model_disposition": "BENIGN",
       "policy_override": "Insufficient evidence for automatic remediation: the log itself admits insufficient data to classify, so a certainty disposition is unsupported; escalating to human review.",
-      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure."
+      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure.",
+      "has_dependency_evidence": false
     }
   ],
   "handoffs": [
@@ -66,11 +74,31 @@
       "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure."
     }
   ],
+  "investigate_signals": [
+    {
+      "log_key": "inbox_app_error",
+      "disposition": "ACTIONABLE",
+      "has_dependency_evidence": false
+    },
+    {
+      "log_key": "inbox_app_warning",
+      "disposition": "ACTIONABLE",
+      "has_dependency_evidence": false
+    }
+  ],
+  "classification_mismatches": [
+    {
+      "log_key": "inbox_app_error",
+      "expected": "BENIGN",
+      "actual": "ACTIONABLE",
+      "note": "Expected BENIGN; model classified differently."
+    }
+  ],
   "recovery": {
-    "incident_id": "bf245fed-3156-4723-9b54-0d009dc510fc",
+    "incident_id": "377e9e0d-ae1c-4536-b57b-3aedf36abb4c",
     "status": "tested_patch_awaiting_human_approval",
     "attempts": 2,
-    "elapsed_alert_to_tested_patch_ms": 38155.84,
+    "elapsed_alert_to_tested_patch_ms": 28359.98,
     "fault_injection_labeled": true
   },
   "approval": {
@@ -80,7 +108,7 @@
   "staging": {
     "released": true,
     "error": null,
-    "port": 55310,
+    "port": 55844,
     "health": {
       "status": "ok",
       "jinja2": "3.1.4",
@@ -97,8 +125,8 @@
   },
   "stop": {
     "stopped": true,
-    "incident_id": "bf245fed-3156-4723-9b54-0d009dc510fc",
-    "utc_timestamp": "2026-11-01T06:02:33.520058+00:00"
+    "incident_id": "377e9e0d-ae1c-4536-b57b-3aedf36abb4c",
+    "utc_timestamp": "2026-11-01T06:19:38.891320+00:00"
   },
-  "export_bytes": 28667
+  "export_bytes": 28467
 }
