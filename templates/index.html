@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Night Shift · Local recovery console</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="brand">
+    <span class="mark">Night<span>Shift</span></span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab-btn active" data-tab="inbox" role="tab" aria-selected="true">Inbox</button>
+    <button class="tab-btn" data-tab="incident" role="tab" aria-selected="false">Incident</button>
+    <button class="tab-btn" data-tab="evidence" role="tab" aria-selected="false">Evidence</button>
+  </nav>
+  <details class="demo-badge">
+    <summary>Local demo</summary>
+    <div style="position:absolute;right:24px;top:48px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px;min-width:280px;font-size:.82rem;color:var(--muted);z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.3)">
+      <strong style="color:var(--text);display:block;margin-bottom:6px">Demonstration limits</strong>
+      <ul style="list-style:none;padding:0">
+        <li style="margin:4px 0">Synthetic inputs only — no real incidents</li>
+        <li style="margin:4px 0">Fault injection is intentional on attempt 1</li>
+        <li style="margin:4px 0">Jinja2 3.1.4 is a historical target, not current-security</li>
+        <li style="margin:4px 0">All services bind to 127.0.0.1</li>
+        <li style="margin:4px 0">Human approval is unauthenticated (local demo)</li>
+        <li style="margin:4px 0">Evidence reads are orchestrator-selected</li>
+      </ul>
+    </div>
+  </details>
+</header>
+
+<div class="status-bar">
+  <span class="dot" id="liveDot"></span>
+  <span id="statusText">Ready — analyze the inbox to begin.</span>
+</div>
+
+<main class="app-main">
+
+<!-- ============ INBOX TAB ============ -->
+<section class="tab-panel active" id="tab-inbox" role="tabpanel">
+  <div class="panel">
+    <h2>Synthetic inbox</h2>
+    <p class="kicker" style="margin-bottom:12px">Analyzes a fixed batch of five synthetic signals with real Sentry classification. Only a signal explicitly connected to the affected dependency (jinja2 + affected version + trusted advisory) can start the recovery workflow.</p>
+    <div class="controls">
+      <button class="btn primary" id="btnAnalyzeInbox">Analyze synthetic inbox</button>
+    </div>
+  </div>
+
+  <div id="inboxStates">
+    <div class="panel empty-state" id="inboxEmpty">
+      No signals analyzed yet. Click <strong>Analyze synthetic inbox</strong> to start.
+    </div>
+    <div class="panel loading-state hidden" id="inboxLoading">
+      <span class="spinner"></span> Analyzing 5 synthetic signals… (synchronous, indeterminate duration)
+    </div>
+    <div class="panel error-state hidden" id="inboxError"></div>
+  </div>
+
+  <div id="inboxResultsWrap" class="hidden">
+    <div class="panel">
+      <h2>Signal results</h2>
+      <div class="metric-row" id="inboxMetrics" style="margin-bottom:12px"></div>
+      <div class="tablewrap">
+        <table id="inboxTable">
+          <thead>
+            <tr>
+              <th>Signal</th>
+              <th>Service</th>
+              <th>Disposition</th>
+              <th>Route</th>
+              <th>Next action</th>
+            </tr>
+          </thead>
+          <tbody id="inboxTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <details>
+      <summary>Evaluation diagnostics — expected vs. actual</summary>
+      <div id="inboxEval"></div>
+    </details>
+  </div>
+
+  <details>
+    <summary>Demo tools — standalone recovery and quick triage</summary>
+    <div class="panel" style="margin-top:8px;border:0;padding:0">
+      <div class="controls" style="margin-bottom:10px">
+        <button class="btn secondary sm" id="btnRunWorkflow">Run standalone recovery</button>
+        <button class="btn secondary sm" id="btnTriageActionable">Triage: actionable</button>
+        <button class="btn secondary sm" id="btnTriageBenign">Triage: benign</button>
+        <button class="btn secondary sm" id="btnTriageAmbiguous">Triage: ambiguous</button>
+      </div>
+      <div id="demoOut"></div>
+    </div>
+  </details>
+</section>
+
+<!-- ============ INCIDENT TAB ============ -->
+<section class="tab-panel" id="tab-incident" role="tabpanel">
+  <div class="panel empty-state" id="incidentEmpty">
+    Select a signal from the Inbox to inspect its incident detail.
+  </div>
+  <div id="incidentContent" class="hidden"></div>
+</section>
+
+<!-- ============ EVIDENCE TAB ============ -->
+<section class="tab-panel" id="tab-evidence" role="tabpanel">
+  <div class="panel">
+    <h2>Evidence and export</h2>
+    <p class="kicker" style="margin-bottom:12px">Detailed evidence for the selected incident: test results, tool reads, raw model responses (untrusted text), advisory sources, and JSON export.</p>
+    <div class="controls" style="margin-bottom:12px">
+      <select id="evidenceIncidentSelect" class="btn secondary" style="min-width:300px">
+        <option value="">Select incident…</option>
+      </select>
+      <button class="btn primary" id="btnExport" disabled>Export evidence JSON</button>
+    </div>
+    <div class="metric-row" style="margin-bottom:12px">
+      <div class="metric"><span class="label">Recovery timing</span><div class="value" id="evidRecoveryTiming">—</div></div>
+      <div class="metric"><span class="label">Total inbox time</span><div class="value" id="evidInboxTiming">—</div></div>
+    </div>
+  </div>
+  <div id="evidenceContent"></div>
+</section>
+
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

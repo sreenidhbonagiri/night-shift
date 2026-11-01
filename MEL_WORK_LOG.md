@@ -1720,3 +1720,72 @@ $ python -m pytest tests/ -q
 - No live workflow re-run (isolated policy fix only).
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 18 — UI redesign: cohesive single-page application
+
+### Changes
+- Frontend extracted from ~300 lines embedded in `app/main.py` into
+  `static/styles.css` (366 lines), `templates/index.html` (131 lines),
+  and `static/app.js` (671 lines). No build system; no new dependencies
+  (index() serves the template via direct file read — the venv lacks
+  Jinja2 and none was added).
+- App shell: compact NightShift wordmark, nav tabs (Inbox / Incident /
+  Evidence), restrained "Local demo" badge with expandable limits
+  disclosure. Dark charcoal/navy surfaces, off-white text, teal
+  accents; no gradients or decorative charts.
+- Inbox is the primary entry: "Analyze synthetic inbox" is the sole
+  primary action; standalone recovery and quick-triage moved into a
+  collapsed "Demo tools" disclosure. Compact selectable signal rows
+  (signal, service, disposition, route, next action) with readable
+  labels (Benign / Actionable / Needs review; Dismiss / Investigate /
+  Review / Remediate). Evaluation diagnostics (expected vs actual,
+  mismatch notices, handoffs) moved to an expandable section.
+  Mutually exclusive empty/loading/error states; button disabled while
+  running; synchronous endpoint shown as an honest indeterminate state.
+- Connected incident workspace: selecting a signal shows its log,
+  triage conclusion, policy decision (override reason FIRST, model
+  assessment separately in a disclosure), and for the remediation
+  signal loads the SAME inbox-created incident via GET /incident/{id}
+  — never starts a duplicate workflow. Timeline shows the real
+  rejected fault-injection attempt and recovery. Diff and QA summary
+  side by side on desktop; installed versions, test counts, citations,
+  uncertainty, artifact SHA; one state-appropriate primary action
+  (Approve → Release → Stop); simulation under demo tools; staging
+  health/smoke and stopped state rendered accurately.
+- Evidence tab: per-incident selector, export targeting the selected
+  incident, recovery timing and total inbox timing labeled separately,
+  raw model outputs in disclosures labeled untrusted.
+- Backend (minimal integration): /inbox registers the recovery
+  incident in the _incidents store and returns recovery_incident_id;
+  new GET /incidents lists id+status for the evidence selector.
+  All approval gates, staging, and export code unchanged.
+
+### Tests
+- New tests/test_inbox_integration.py (9 tests): inbox-created incident
+  has stable id; is the workflow's exact object; no workflow without
+  eligible signal; at most one workflow; selection does not re-invoke
+  the workflow; initial status gated; verified_patch shape; rejected +
+  recovered attempts recorded; compatible with approval._find_verified_patch.
+- Full mock suite: 192 passed (29 grounded + 13 triage + 65 acceptance
+  + 22 staging + 20 release gates + 34 inbox + 9 integration).
+
+### Live verification (job 69, uvicorn on 127.0.0.1:8199)
+- Verified: server startup, / and /static files served 200; desktop
+  screenshot (1280px) shows empty state ONLY (loading state visually
+  hidden — states mutually exclusive); narrow screenshot (375px) stacks
+  panels with no page-wide horizontal scroll; nav usable.
+- LIMITATION (honest): the browser toolset here has no element-click
+  capability, so the full journey (button click → select row → approve
+  → release → health/smoke → stop → export) could not be driven through
+  the rendered page. The earlier /inbox POST (previous server, job 68)
+  completed 200 OK and produced artifact fdd9a285-…, but that incident
+  is unrecoverable — the store is in-memory and that server process
+  died. A fresh journey via the button remains unexecuted; the journey
+  logic is covered by the 9 integration tests plus the 183 pre-existing
+  mock tests against the same endpoints.
+- Minor defect noted: at 375px the nav tabs slightly overflow the
+  viewport ("Evidence" partially cut); usable but imperfect.
+
+### Status after checkpoint 18
+- Redesign committed locally; NOT pushed.
+- Paused.
