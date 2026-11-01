@@ -1,68 +1,126 @@
 {
-  "started_utc": "2026-11-01T06:18:42Z",
+  "started_utc": "2026-11-01T06:26:02Z",
   "inbox": {
     "summary": {
       "total": 5,
-      "actionable": 3,
-      "benign": 1,
-      "needs_human_review": 1,
-      "investigate": 2,
-      "remediation_eligible": 1,
+      "dispositions": {
+        "BENIGN": 2,
+        "ACTIONABLE": 2,
+        "NEEDS_HUMAN_REVIEW": 1
+      },
+      "routes": {
+        "dismiss": 2,
+        "investigate": 1,
+        "human_review": 1,
+        "remediate": 1
+      },
       "recovery_started": true,
-      "classification_mismatches": 1
+      "classification_mismatches": 0,
+      "routing_mismatches": 0
     },
-    "elapsed_ms": 51294.51
+    "elapsed_ms": 51244.61
   },
   "classifications": [
     {
       "log_key": "inbox_success",
       "description": "Successful HTTP request",
-      "expected_label": "BENIGN",
-      "final_disposition": "BENIGN",
+      "expected_disposition": "BENIGN",
+      "expected_route": "dismiss",
       "model_disposition": "BENIGN",
+      "policy_route": "dismiss",
       "policy_override": null,
-      "reason": "The log line indicates a successful payment gateway transaction with no errors or anomalies.",
-      "has_dependency_evidence": false
+      "reason": "This is a routine success message indicating a successful payment gateway transaction with no errors.",
+      "patch_eligibility": {
+        "eligible": false,
+        "package": null,
+        "version": null,
+        "advisory": null,
+        "missing": [
+          "supported package",
+          "concrete affected version",
+          "matching trusted advisory"
+        ]
+      }
     },
     {
       "log_key": "inbox_app_error",
       "description": "Harmless application error (null amount, request rejected)",
-      "expected_label": "BENIGN",
-      "final_disposition": "ACTIONABLE",
-      "model_disposition": "ACTIONABLE",
+      "expected_disposition": "BENIGN",
+      "expected_route": "dismiss",
+      "model_disposition": "BENIGN",
+      "policy_route": "dismiss",
       "policy_override": null,
-      "reason": "The payment gateway service encountered an unhandled TypeError due to a null amount in a refund request, indicating a potential data validation issue that could lead to failed transactions.",
-      "has_dependency_evidence": false
+      "reason": "The log indicates a rejected request due to an unhandled TypeError, which is expected behavior as the application safely rejects invalid requests without data loss.",
+      "patch_eligibility": {
+        "eligible": false,
+        "package": null,
+        "version": null,
+        "advisory": null,
+        "missing": [
+          "supported package",
+          "concrete affected version",
+          "matching trusted advisory"
+        ]
+      }
     },
     {
       "log_key": "inbox_dep_scan",
       "description": "Dependency scanner finding (CVE-2024-34064)",
-      "expected_label": "ACTIONABLE",
-      "final_disposition": "ACTIONABLE",
+      "expected_disposition": "ACTIONABLE",
+      "expected_route": "remediate",
       "model_disposition": "ACTIONABLE",
+      "policy_route": "remediate",
       "policy_override": null,
-      "reason": "Jinja2 3.1.2 is known to be vulnerable to CVE-2024-34064, requiring immediate patching to prevent potential security breaches.",
-      "has_dependency_evidence": true
+      "reason": "Jinja2 3.1.2 is vulnerable to CVE-2024-34064, requiring immediate patching to prevent security risks",
+      "patch_eligibility": {
+        "eligible": true,
+        "package": "jinja2",
+        "version": "3.1.2",
+        "advisory": "cve-2024-34064",
+        "missing": []
+      }
     },
     {
       "log_key": "inbox_app_warning",
       "description": "Template cache miss rate warning",
-      "expected_label": "INVESTIGATE",
-      "final_disposition": "ACTIONABLE",
+      "expected_disposition": "ACTIONABLE",
+      "expected_route": "investigate",
       "model_disposition": "ACTIONABLE",
+      "policy_route": "investigate",
       "policy_override": null,
-      "reason": "Template cache miss rate of 78% exceeds threshold, indicating potential performance issues with template rendering",
-      "has_dependency_evidence": false
+      "reason": "Template cache miss rate exceeding threshold indicates potential performance issue requiring review of template rendering paths",
+      "patch_eligibility": {
+        "eligible": false,
+        "package": null,
+        "version": null,
+        "advisory": null,
+        "missing": [
+          "supported package",
+          "concrete affected version",
+          "matching trusted advisory"
+        ]
+      }
     },
     {
       "log_key": "inbox_incomplete",
       "description": "Incomplete signal (metrics endpoint timeout)",
-      "expected_label": "NEEDS_HUMAN_REVIEW",
-      "final_disposition": "NEEDS_HUMAN_REVIEW",
-      "model_disposition": "BENIGN",
+      "expected_disposition": "NEEDS_HUMAN_REVIEW",
+      "expected_route": "human_review",
+      "model_disposition": "NEEDS_HUMAN_REVIEW",
+      "policy_route": "human_review",
       "policy_override": "Insufficient evidence for automatic remediation: the log itself admits insufficient data to classify, so a certainty disposition is unsupported; escalating to human review.",
-      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure.",
-      "has_dependency_evidence": false
+      "reason": "The log indicates a health check timeout which is expected during routine monitoring and does not indicate a critical failure.",
+      "patch_eligibility": {
+        "eligible": false,
+        "package": null,
+        "version": null,
+        "advisory": null,
+        "missing": [
+          "supported package",
+          "concrete affected version",
+          "matching trusted advisory"
+        ]
+      }
     }
   ],
   "handoffs": [
@@ -71,62 +129,61 @@
       "status": "needs_human_review",
       "attempts": [],
       "elapsed_alert_to_tested_patch_ms": null,
-      "reason": "The log indicates a health check timeout for the payment gateway metrics endpoint, which is a common transient issue and not indicative of a critical failure."
+      "reason": "The log indicates a health check timeout which is expected during routine monitoring and does not indicate a critical failure."
     }
   ],
-  "investigate_signals": [
-    {
-      "log_key": "inbox_app_error",
-      "disposition": "ACTIONABLE",
-      "has_dependency_evidence": false
-    },
-    {
-      "log_key": "inbox_app_warning",
-      "disposition": "ACTIONABLE",
-      "has_dependency_evidence": false
-    }
-  ],
-  "classification_mismatches": [
-    {
-      "log_key": "inbox_app_error",
-      "expected": "BENIGN",
-      "actual": "ACTIONABLE",
-      "note": "Expected BENIGN; model classified differently."
-    }
-  ],
-  "recovery": {
-    "incident_id": "377e9e0d-ae1c-4536-b57b-3aedf36abb4c",
+  "classification_accuracy": {
+    "pass": true,
+    "correct": 5,
+    "total": 5,
+    "mismatches": []
+  },
+  "routing_correctness": {
+    "pass": true,
+    "correct": 5,
+    "total": 5,
+    "mismatches": []
+  },
+  "remediation": {
+    "started": true,
+    "pass": true,
+    "incident_id": "2f019174-ea58-4051-8d52-9adede9700d6",
     "status": "tested_patch_awaiting_human_approval",
     "attempts": 2,
-    "elapsed_alert_to_tested_patch_ms": 28359.98,
-    "fault_injection_labeled": true
-  },
-  "approval": {
-    "approved": true,
-    "error": null
-  },
-  "staging": {
-    "released": true,
-    "error": null,
-    "port": 55844,
-    "health": {
-      "status": "ok",
-      "jinja2": "3.1.4",
-      "MarkupSafe": "2.1.5"
+    "elapsed_alert_to_tested_patch_ms": 32864.53,
+    "fault_injection_labeled": true,
+    "approval": {
+      "approved": true,
+      "error": null
     },
-    "smoke": {
-      "status": "ok",
-      "checks": {
-        "greeting_escapes_html": true,
-        "xmlattr_rejects_space": true,
-        "xmlattr_rejects_slash": true
+    "staging": {
+      "released": true,
+      "error": null,
+      "port": 56129,
+      "health": {
+        "status": "ok",
+        "jinja2": "3.1.4",
+        "MarkupSafe": "2.1.5"
+      },
+      "smoke": {
+        "status": "ok",
+        "checks": {
+          "greeting_escapes_html": true,
+          "xmlattr_rejects_space": true,
+          "xmlattr_rejects_slash": true
+        }
       }
-    }
+    },
+    "stop": {
+      "stopped": true,
+      "incident_id": "2f019174-ea58-4051-8d52-9adede9700d6",
+      "utc_timestamp": "2026-11-01T06:26:59.299118+00:00"
+    },
+    "export_bytes": 27433
   },
-  "stop": {
-    "stopped": true,
-    "incident_id": "377e9e0d-ae1c-4536-b57b-3aedf36abb4c",
-    "utc_timestamp": "2026-11-01T06:19:38.891320+00:00"
-  },
-  "export_bytes": 28467
+  "verdict": {
+    "classification_accuracy": true,
+    "routing_correctness": true,
+    "remediation": true
+  }
 }

@@ -1554,3 +1554,100 @@ advisory connection, mismatch tracking, no-attack-claims.
   gating worked correctly in both cases.
 - Enhancement committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 16 — mixed-inbox focused correction
+
+### Corrections (checkpoint 15's inbox, commit 6c0d696)
+1. **Separate evaluation dimensions.** `INBOX_BATCH` now stores
+   `expected_disposition` (model enum: BENIGN / ACTIONABLE /
+   NEEDS_HUMAN_REVIEW) and `expected_route` (policy enum: dismiss /
+   investigate / human_review / remediate). The two enums are never
+   compared to each other. Summary reports `dispositions` and `routes`
+   sub-dicts; `classification_mismatches` and `routing_mismatches` are
+   tracked separately. The harmless-error expected disposition remains
+   BENIGN; its earlier misclassification is preserved as a recorded
+   failure in checkpoint 15.
+2. **Tightened patch eligibility.** `_patch_eligibility()` requires ALL
+   of: a supported package (jinja2), a concrete affected version
+   (`\d+\.\d+\.\d+`), and a matching trusted advisory (CVE-2024-22195 /
+   CVE-2024-34064 / GHSA-h5c8-rqwp-cp95 / GHSA-h75v-3vvj-5mfj, each
+   mapped to jinja2). Generic markers ("affected by", "dependency
+   scanner") alone cannot authorize Jinja2 remediation. Repository
+   investigation (Engineer grounding) and QA still validate the proposed
+   change afterwards — this gate only decides whether the workflow may
+   start.
+3. **Selected evidence reaches Engineer.** Verified by inspection: the
+   workflow calls `engineer_fn(ADVISORY_CONTEXT, previous_rejection)`
+   with a hardcoded context — the inbox's evidence previously did NOT
+   reach Engineer. Fixed: `process_inbox` accepts `engineer_fn` and
+   binds `_bound_engineer_fn`, whose context contains the selected
+   signal's ID, original log, Sentry disposition, triage rationale,
+   patch eligibility, and the workflow's advisory context. Regression
+   test `test_selected_evidence_reaches_engineer` captures the ACTUAL
+   engineer_fn arguments (not just the bound sentry_fn) and asserts all
+   four elements are present; a second test verifies delegation
+   preserves `previous_rejection` on retries.
+4. **Harmless-error false positive addressed via prompt.** The Sentry
+   system prompt's BENIGN definition now explicitly covers expected
+   application errors that were caught, rejected, or contained by the
+   application itself (even at level ERROR). No fixture-specific
+   exception, no expected-answer change, previous failure preserved
+   (checkpoint 15). In the live run the model now classifies it BENIGN.
+5. **Dashboard updated** for the new summary shape: dispositions/routes
+   metrics, expected/model disposition and expected/policy route
+   columns, patch-eligible column, and routing-mismatch notices.
+6. **Live check reports dimensions separately.**
+   `tests/live_inbox_check.py` now prints independent PASS/FAIL verdicts
+   for classification accuracy, routing correctness, and remediation
+   success; it cannot declare everything passed while classification
+   assertions failed.
+
+### Mock tests (`tests/test_inbox.py`, 23 tests)
+- TestEvaluationDimensions: separate enums, metadata outside model
+  inputs, app_error expected BENIGN/dismiss, app_warning expected route
+  investigate, dimensions reported separately.
+- TestPatchEligibility: dep_scan eligible (jinja2 + 3.1.2 +
+  cve-2024-34064); generic error / warning / marker-only /
+  package-without-version / unsupported-package all ineligible.
+- TestRouting: eligible signal routes remediate; generic error and
+  warning ACTIONABLE blocked to investigate; NHR routes human_review
+  (5 handoffs, zero attempts, null timing); only one recovery runs.
+- TestEngineerBoundary: actual engineer_fn arguments carry signal ID,
+  original log, triage rationale, advisory context; delegation
+  preserves previous_rejection.
+- TestMismatchTracking: classification vs routing tracked separately;
+  a misclassified signal can still route safely, both honestly recorded.
+- TestHandoffPreservation, TestNoAttackOrExploitabilityClaims.
+
+### Verification
+```
+$ python -m pytest tests/ -q
+172 passed (29 grounded + 13 triage + 65 acceptance + 22 staging +
+20 release gates + 23 inbox)
+```
+
+Bounded live run (`tests/live_inbox_check.py`, single run, report:
+`live_inbox_check_report.json`):
+- Classification accuracy: PASS (5/5) —
+  inbox_success BENIGN ✓, inbox_app_error BENIGN ✓ (previously
+  misclassified ACTIONABLE; prompt fix, no expected-answer change),
+  inbox_dep_scan ACTIONABLE ✓, inbox_app_warning ACTIONABLE ✓,
+  inbox_incomplete NEEDS_HUMAN_REVIEW ✓.
+- Routing correctness: PASS (5/5) — dismiss 2, investigate 1,
+  human_review 1, remediate 1; every route matched its expected route.
+- Remediation success: PASS — recovery 2f019174-…, 2 attempts
+  (fault injection labeled True on attempt 1), 32864.53 ms
+  alert-to-tested-patch, approval granted, staging released,
+  /health ok (jinja2 3.1.4), /smoke ok (all 3 checks strictly True),
+  stop confirmed (staging_stopped), export serializable.
+- 1 handoff (inbox_incomplete): zero attempts, null timing.
+- inbox_app_warning (ACTIONABLE but not patch-eligible) correctly
+  routed to investigate, not remediation.
+
+### Status after checkpoint 16
+- Evaluation dimensions separated; patch eligibility tightened;
+  Engineer evidence boundary proven by test; harmless-error prompt fix
+  verified live; dashboard and live check updated.
+- Committed locally; NOT pushed (both inbox commits remain unpushed
+  with this one).
+- Paused.

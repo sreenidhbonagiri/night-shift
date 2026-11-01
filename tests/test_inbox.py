@@ -1,8 +1,8 @@
 """Mock tests for the mixed synthetic incident inbox.
 
 Tests cover classification policy, signal separation, remediation
-gating, and evidence-connection requirements — all with injected
-triage/workflow functions, no model calls.
+gating, patch eligibility, and the Engineer evidence boundary — all
+with injected triage/workflow/engineer functions, no model calls.
 """
 import json
 import unittest
@@ -37,188 +37,145 @@ def make_triage(disposition, log_key=None, **overrides):
     return triage_fn
 
 
-class TestInboxClassification(unittest.TestCase):
-    """Each inbox signal must be classified; the batch must contain all 5."""
+def noop_workflow(**kw):
+    return {"id": kw.get("incident_id", "x"), "status": "blocked",
+            "events": [], "attempts": [],
+            "elapsed_alert_to_tested_patch_ms": None}
+
+
+class TestEvaluationDimensions(unittest.TestCase):
+    """Model disposition and policy route are separate enums."""
 
     def test_inbox_batch_has_five_signals(self):
         self.assertEqual(len(ib.INBOX_BATCH), 5)
 
-    def test_inbox_batch_keys_match_fixtures(self):
+    def test_expected_metadata_stored_not_in_fixture_text(self):
+        """Expected dispositions and routes are evaluation metadata in
+        INBOX_BATCH, never in the log text sent to the model."""
         for item in ib.INBOX_BATCH:
-            self.assertIn(item["key"], sentry_agent.SYNTHETIC_FIXTURES)
-
-    def test_expected_labels_stored_not_in_fixture_text(self):
-        """Expected labels are evaluation metadata in INBOX_BATCH, never
-        in the log text sent to the model."""
-        for item in ib.INBOX_BATCH:
-            self.assertIn("expected_label", item)
             log = sentry_agent.SYNTHETIC_FIXTURES[item["key"]]
-            self.assertNotIn(item["expected_label"], log,
-                             f"expected label leaked into log for {item['key']}")
+            self.assertNotIn(item["expected_disposition"], log)
+            self.assertNotIn(item["expected_route"], log)
 
-    def test_inbox_app_error_expected_label_is_benign(self):
-        """The harmless application-error fixture's expected outcome must
-        be BENIGN, not broadened."""
+    def test_inbox_app_error_expected_disposition_is_benign(self):
+        """The harmless application-error fixture's expected model
+        disposition must be BENIGN, never broadened."""
         item = next(i for i in ib.INBOX_BATCH if i["key"] == "inbox_app_error")
-        self.assertEqual(item["expected_label"], "BENIGN")
+        self.assertEqual(item["expected_disposition"], "BENIGN")
+        self.assertEqual(item["expected_route"], "dismiss")
 
-    def test_inbox_app_warning_expected_label_is_investigate(self):
-        """The application warning must be INVESTIGATE, not ACTIONABLE
-        or BENIGN — it is not patch-eligible."""
+    def test_inbox_app_warning_expected_route_is_investigate(self):
+        """The application warning's expected ROUTE is investigate — the
+        route enum, not compared against model dispositions."""
         item = next(i for i in ib.INBOX_BATCH if i["key"] == "inbox_app_warning")
-        self.assertEqual(item["expected_label"], "INVESTIGATE")
+        self.assertEqual(item["expected_route"], "investigate")
+
+    def test_dimensions_reported_separately(self):
+        out = ib.process_inbox(triage_fn=make_triage("BENIGN"),
+                               workflow_fn=noop_workflow,
+                               fault_inject_first=False)
+        s = out["summary"]
+        self.assertIn("dispositions", s)
+        self.assertIn("routes", s)
+        self.assertEqual(s["dispositions"]["BENIGN"], 5)
+        self.assertEqual(s["routes"]["dismiss"], 5)
 
 
-class TestSignalSeparation(unittest.TestCase):
-    """Different dispositions must be recorded in the right buckets."""
+class TestPatchEligibility(unittest.TestCase):
+    """Patch eligibility requires package + version + advisory."""
 
-    def _run(self, dispositions, advisory_metas=None):
-        """Map each inbox key to a disposition in order."""
-        it = iter(dispositions)
-        mit = iter(advisory_metas or [{}] * 5)
+    def test_dep_scan_fixture_is_eligible(self):
+        elig = ib._patch_eligibility(
+            sentry_agent.SYNTHETIC_FIXTURES["inbox_dep_scan"])
+        self.assertTrue(elig["eligible"], elig)
+        self.assertEqual(elig["package"], "jinja2")
+        self.assertEqual(elig["version"], "3.1.2")
+        self.assertEqual(elig["advisory"], "cve-2024-34064")
 
-        def triage_fn(key):
-            d = next(it)
-            m = next(mit)
-            return make_triage(d, advisory_metadata=m)(key)
+    def test_generic_error_not_eligible(self):
+        elig = ib._patch_eligibility(
+            sentry_agent.SYNTHETIC_FIXTURES["inbox_app_error"])
+        self.assertFalse(elig["eligible"])
+        self.assertIn("supported package", elig["missing"])
 
-        def noop_workflow(**kw):
-            return {"id": kw.get("incident_id", "x"), "status": "blocked",
-                    "events": [], "attempts": [],
-                    "elapsed_alert_to_tested_patch_ms": None}
+    def test_warning_not_eligible(self):
+        elig = ib._patch_eligibility(
+            sentry_agent.SYNTHETIC_FIXTURES["inbox_app_warning"])
+        self.assertFalse(elig["eligible"])
 
-        return ib.process_inbox(triage_fn=triage_fn,
-                                workflow_fn=noop_workflow,
-                                fault_inject_first=False)
+    def test_generic_marker_alone_not_eligible(self):
+        """'affected by' or 'dependency scanner' alone cannot authorize
+        Jinja2 remediation."""
+        elig = ib._patch_eligibility(
+            "msg='dependency scanner says something is affected by an issue'")
+        self.assertFalse(elig["eligible"])
 
-    def test_benign_signals_not_actionable(self):
-        out = self._run(["BENIGN"] * 5)
-        self.assertEqual(out["summary"]["benign"], 5)
-        self.assertEqual(out["summary"]["actionable"], 0)
-        self.assertEqual(out["summary"]["needs_human_review"], 0)
-        self.assertIsNone(out["recovery_incident"])
+    def test_package_without_version_not_eligible(self):
+        elig = ib._patch_eligibility("jinja2 is mentioned with cve-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("concrete affected version", elig["missing"])
 
-    def test_needs_human_review_signals_become_handoffs(self):
-        out = self._run(["NEEDS_HUMAN_REVIEW"] * 5)
-        self.assertEqual(out["summary"]["needs_human_review"], 5)
-        self.assertEqual(len(out["handoffs"]), 5)
-        for h in out["handoffs"]:
-            self.assertEqual(h["status"], "needs_human_review")
-            self.assertEqual(h["attempts"], [])
-            self.assertIsNone(h["elapsed_alert_to_tested_patch_ms"])
+    def test_unsupported_package_not_eligible(self):
+        elig = ib._patch_eligibility("urllib3 1.26 affected by cve-2021-33503")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("matching trusted advisory", elig["missing"])
 
-    def test_mixed_dispositions_separated_correctly(self):
-        """3 BENIGN + 1 ACTIONABLE (with dep evidence) + 1 NHR."""
+
+class TestRouting(unittest.TestCase):
+    """Dispositions map to routes correctly."""
+
+    def test_actionable_with_dep_evidence_routes_to_remediate(self):
         def triage_fn(key):
             if key == "inbox_dep_scan":
-                return make_triage("ACTIONABLE",
-                                   advisory_metadata={"CVE": {}})(key)
-            if key == "inbox_incomplete":
-                return make_triage("NEEDS_HUMAN_REVIEW")(key)
+                return make_triage("ACTIONABLE")(key)
             return make_triage("BENIGN")(key)
-
-        def noop_workflow(**kw):
-            return {"id": kw.get("incident_id", "x"), "status": "blocked",
-                    "events": [], "attempts": [],
-                    "elapsed_alert_to_tested_patch_ms": None}
 
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=noop_workflow,
                                fault_inject_first=False)
-        self.assertEqual(out["summary"]["benign"], 3)
-        self.assertEqual(out["summary"]["actionable"], 1)
-        self.assertEqual(out["summary"]["needs_human_review"], 1)
-        self.assertEqual(len(out["handoffs"]), 1)
-        # The ACTIONABLE signal has advisory metadata → remediation eligible
-        self.assertEqual(out["summary"]["remediation_eligible"], 1)
+        self.assertEqual(out["summary"]["routes"]["remediate"], 1)
         self.assertIsNotNone(out["recovery_incident"])
 
-
-class TestRemediationGating(unittest.TestCase):
-    """Only a signal with explicit dependency evidence may start the
-    Jinja2 remediation workflow. Generic errors and warnings are blocked."""
-
-    def test_actionable_with_dep_evidence_starts_recovery(self):
-        """An ACTIONABLE signal WITH dependency evidence starts recovery."""
-        called_with = {}
-
-        def triage_fn(key):
-            m = {"CVE-2024-34064": {}} if key == "inbox_dep_scan" else {}
-            return make_triage("ACTIONABLE", advisory_metadata=m)(key)
-
-        def tracking_workflow(**kw):
-            called_with.update(kw)
-            return {"id": kw.get("incident_id"), "status": "blocked",
-                    "events": [], "attempts": [],
-                    "elapsed_alert_to_tested_patch_ms": None}
-
-        out = ib.process_inbox(triage_fn=triage_fn,
-                               workflow_fn=tracking_workflow,
-                               fault_inject_first=True)
-        self.assertTrue(out["summary"]["recovery_started"])
-        self.assertTrue(called_with.get("fault_inject_first"))
-
     def test_generic_error_actionable_cannot_trigger_jinja2_remediation(self):
-        """REGRESSION: an ACTIONABLE application error WITHOUT dependency
-        evidence must NOT start the Jinja2 remediation workflow.
-        Only inbox_app_error is ACTIONABLE; all others are BENIGN so
-        only the app error is tested."""
+        """REGRESSION: an ACTIONABLE application error WITHOUT patch
+        eligibility must NOT start the Jinja2 remediation workflow."""
         def triage_fn(key):
             if key == "inbox_app_error":
-                return make_triage("ACTIONABLE", advisory_metadata={})(key)
-            return make_triage("BENIGN", advisory_metadata={})(key)
+                return make_triage("ACTIONABLE")(key)
+            return make_triage("BENIGN")(key)
 
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=MagicMock(),
                                fault_inject_first=False)
+        self.assertEqual(out["summary"]["routes"]["remediate"], 0)
         self.assertFalse(out["summary"]["recovery_started"])
-        self.assertEqual(out["summary"]["remediation_eligible"], 0)
-        # The actionable signal should be in investigate_signals, not
-        # starting a workflow.
-        self.assertGreater(len(out["investigate_signals"]), 0)
+        self.assertEqual(len(out["investigate_signals"]), 1)
+        # The misclassification is preserved as a failure. (The other
+        # three signals' expected dispositions also differ from the
+        # injected BENIGN, so 4 mismatches total is the honest count.)
+        self.assertEqual(out["summary"]["classification_mismatches"], 4)
+        app_err = [m for m in out["classification_mismatches"]
+                   if m["log_key"] == "inbox_app_error"]
+        self.assertEqual(app_err[0]["expected"], "BENIGN")
+        self.assertEqual(app_err[0]["actual"], "ACTIONABLE")
 
     def test_unrelated_warning_cannot_authorize_patch(self):
         """REGRESSION: a warning (e.g. cache miss rate) marked ACTIONABLE
-        but without dependency evidence must NOT authorize the Jinja2
-        patch. Only inbox_app_warning is ACTIONABLE; all others BENIGN."""
+        but without patch eligibility must NOT authorize the Jinja2
+        patch. It routes to investigate."""
         def triage_fn(key):
             if key == "inbox_app_warning":
-                return make_triage("ACTIONABLE", advisory_metadata={})(key)
-            return make_triage("BENIGN", advisory_metadata={})(key)
+                return make_triage("ACTIONABLE")(key)
+            return make_triage("BENIGN")(key)
 
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=MagicMock(),
                                fault_inject_first=False)
+        self.assertEqual(out["summary"]["routes"]["remediate"], 0)
         self.assertFalse(out["summary"]["recovery_started"])
-        self.assertEqual(out["summary"]["remediation_eligible"], 0)
+        self.assertEqual(len(out["investigate_signals"]), 1)
 
-    def test_only_one_recovery_runs_uncertain_signals_remain_separate(self):
-        """Even with multiple eligible signals, only one recovery starts;
-        uncertain signals remain separate handoffs."""
-        call_count = 0
-
-        def triage_fn(key):
-            # All 5 are ACTIONABLE, but only inbox_dep_scan has dependency
-            # evidence in its log text. The others are investigate-only.
-            return make_triage("ACTIONABLE")(key)
-
-        def counting_workflow(**kw):
-            nonlocal call_count
-            call_count += 1
-            return {"id": kw.get("incident_id"), "status": "blocked",
-                    "events": [], "attempts": [],
-                    "elapsed_alert_to_tested_patch_ms": None}
-
-        out = ib.process_inbox(triage_fn=triage_fn,
-                               workflow_fn=counting_workflow,
-                               fault_inject_first=False)
-        # Only inbox_dep_scan has dependency evidence in its log text.
-        self.assertEqual(out["summary"]["remediation_eligible"], 1)
-        self.assertEqual(call_count, 1)
-        # The other 4 are investigate-only (ACTIONABLE but no dep evidence).
-        self.assertEqual(len(out["investigate_signals"]), 4)
-
-    def test_uncertain_signal_does_not_authorize_remediation(self):
+    def test_uncertain_signal_routes_to_human_review(self):
         """A NEEDS_HUMAN_REVIEW signal must remain a separate handoff
         and never start the recovery workflow."""
         def triage_fn(key):
@@ -227,45 +184,139 @@ class TestRemediationGating(unittest.TestCase):
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=MagicMock(),
                                fault_inject_first=False)
+        self.assertEqual(out["summary"]["routes"]["human_review"], 5)
         self.assertFalse(out["summary"]["recovery_started"])
         self.assertEqual(len(out["handoffs"]), 5)
         for h in out["handoffs"]:
             self.assertEqual(h["attempts"], [])
             self.assertIsNone(h["elapsed_alert_to_tested_patch_ms"])
 
+    def test_only_one_recovery_runs(self):
+        """Even with all signals ACTIONABLE, only the patch-eligible one
+        starts a workflow — and only one."""
+        call_count = 0
 
-class TestEvidenceReachesEngineer(unittest.TestCase):
-    """The selected dependency evidence must reach Engineer via the
-    workflow's sentry_fn — the workflow must not re-triage from scratch."""
-
-    def test_selected_evidence_reaches_engineer(self):
-        """REGRESSION: process_inbox must pass the selected signal's
-        triage result into run_incident via sentry_fn, so the workflow
-        does NOT re-triage from scratch."""
-        sentry_fn_received = {}
-
-        def triage_fn(key):
-            m = {"CVE-2024-34064": {}} if key == "inbox_dep_scan" else {}
-            return make_triage("ACTIONABLE", advisory_metadata=m,
-                               reason=f"triage-result-for-{key}")(key)
-
-        def tracking_workflow(**kw):
-            sentry_fn_received.update(kw)
+        def counting_workflow(**kw):
+            nonlocal call_count
+            call_count += 1
             return {"id": kw.get("incident_id"), "status": "blocked",
                     "events": [], "attempts": [],
                     "elapsed_alert_to_tested_patch_ms": None}
 
+        out = ib.process_inbox(triage_fn=make_triage("ACTIONABLE"),
+                               workflow_fn=counting_workflow,
+                               fault_inject_first=False)
+        self.assertEqual(call_count, 1)
+        self.assertEqual(out["summary"]["routes"]["remediate"], 1)
+        self.assertEqual(out["summary"]["routes"]["investigate"], 4)
+
+
+class TestEngineerBoundary(unittest.TestCase):
+    """The selected signal's evidence must reach Engineer's actual input
+    — testing only the bound sentry_fn is insufficient."""
+
+    def test_selected_evidence_reaches_engineer(self):
+        """REGRESSION: the workflow calls engineer_fn(advisory_context,
+        previous_rejection). The inbox must bind an engineer_fn whose
+        context contains the selected signal's ID, original log, triage
+        rationale, and advisory context — verified by capturing the
+        actual engineer_fn arguments."""
+        engineer_calls = []
+
+        def capturing_engineer(advisory_context, previous_rejection=None):
+            engineer_calls.append({
+                "advisory_context": advisory_context,
+                "previous_rejection": previous_rejection,
+            })
+            return {
+                "proposal": {"package": "jinja2", "version": "3.1.4",
+                             "reason": "mock"},
+                "reason": "mock",
+                "model": "mock",
+                "elapsed_ms": 1.0,
+                "utc_timestamp": "t",
+                "error": None,
+                "investigation": {
+                    "needs_human_review": False,
+                    "evidence": [],
+                    "citation_problems": [],
+                    "grounding_problems": [],
+                },
+            }
+
+        def triage_fn(key):
+            if key == "inbox_dep_scan":
+                return make_triage(
+                    "ACTIONABLE",
+                    reason="scanner reports jinja2 3.1.2 CVE-2024-34064")(key)
+            return make_triage("BENIGN")(key)
+
+        # Minimal workflow shim that mirrors run_incident's engineer call
+        # pattern (non-fault-injected path): engineer_fn(context, prev).
+        def shim_workflow(**kw):
+            engineer_fn = kw["engineer_fn"]
+            sentry_fn = kw["sentry_fn"]
+            sentry_result = sentry_fn(kw.get("log_key"))
+            if sentry_result.get("disposition") != "ACTIONABLE":
+                return {"id": kw.get("incident_id"), "status": "blocked",
+                        "events": [], "attempts": [],
+                        "elapsed_alert_to_tested_patch_ms": None}
+            eng = engineer_fn("ADVISORY-CONTEXT-PLACEHOLDER", None)
+            return {"id": kw.get("incident_id"), "status": "blocked",
+                    "events": [{"agent": "engineer", **eng}],
+                    "attempts": [{"attempt": 1, "engineer": eng}],
+                    "elapsed_alert_to_tested_patch_ms": None}
+
         out = ib.process_inbox(triage_fn=triage_fn,
-                               workflow_fn=tracking_workflow,
+                               workflow_fn=shim_workflow,
+                               engineer_fn=capturing_engineer,
                                fault_inject_first=False)
         self.assertTrue(out["summary"]["recovery_started"])
-        # The workflow must have received a sentry_fn kwarg.
-        self.assertIn("sentry_fn", sentry_fn_received)
-        # Calling that sentry_fn must return the inbox's triage result,
-        # not re-triage from scratch.
-        bound_fn = sentry_fn_received["sentry_fn"]
-        result = bound_fn("inbox_dep_scan")
-        self.assertEqual(result["reason"], "triage-result-for-inbox_dep_scan")
+        self.assertGreaterEqual(len(engineer_calls), 1,
+                                "engineer_fn was never called")
+
+        ctx = engineer_calls[0]["advisory_context"]
+        # Signal ID, original log, triage rationale, advisory context.
+        self.assertIn("inbox_dep_scan", ctx)
+        self.assertIn("Dependency scanner detected Jinja2 3.1.2", ctx)
+        self.assertIn("scanner reports jinja2 3.1.2 CVE-2024-34064", ctx)
+        self.assertIn("Sentry disposition: ACTIONABLE", ctx)
+        self.assertIn("ADVISORY-CONTEXT-PLACEHOLDER", ctx)
+
+    def test_bound_engineer_fn_passes_through_to_real_engineer(self):
+        """The bound engineer_fn must delegate to the injected engineer
+        with the enriched context, preserving the previous_rejection
+        argument on retries."""
+        captured = []
+
+        def fake_engineer(context, previous_rejection=None):
+            captured.append((context, previous_rejection))
+            return {"proposal": None, "reason": "handoff",
+                    "investigation": {"needs_human_review": True}}
+
+        def triage_fn(key):
+            if key == "inbox_dep_scan":
+                return make_triage("ACTIONABLE")(key)
+            return make_triage("BENIGN")(key)
+
+        rejection = {"reason": "3.1.2 rejected"}
+
+        def shim_workflow(**kw):
+            # Simulate a retry with a previous rejection.
+            eng = kw["engineer_fn"]("ADVCTX", rejection)
+            return {"id": kw.get("incident_id"), "status": "needs_human_review",
+                    "events": [], "attempts": [],
+                    "elapsed_alert_to_tested_patch_ms": None}
+
+        ib.process_inbox(triage_fn=triage_fn,
+                         workflow_fn=shim_workflow,
+                         engineer_fn=fake_engineer,
+                         fault_inject_first=False)
+        self.assertEqual(len(captured), 1)
+        ctx, prev = captured[0]
+        self.assertIn("inbox_dep_scan", ctx)
+        self.assertIn("ADVCTX", ctx)
+        self.assertEqual(prev, rejection)
 
 
 class TestHandoffPreservation(unittest.TestCase):
@@ -285,8 +336,6 @@ class TestHandoffPreservation(unittest.TestCase):
             self.assertIn("Insufficient", h["policy_override"])
 
     def test_inbox_results_preserve_advisory_connection(self):
-        """Each result must carry advisory metadata linking it to
-        repository findings (or an empty dict for non-advisory signals)."""
         def triage_fn(key):
             return make_triage("BENIGN",
                                advisory_metadata={"CVE-2024-34064": {"source": "ghsa"}})(key)
@@ -298,37 +347,48 @@ class TestHandoffPreservation(unittest.TestCase):
             self.assertIn("advisory_metadata", r)
             self.assertIn("advisory_severity", r)
 
-    def test_inbox_results_record_has_dependency_evidence(self):
+
+class TestMismatchTracking(unittest.TestCase):
+    """Classification and routing mismatches are tracked separately."""
+
+    def test_classification_mismatch_recorded_when_model_disagrees(self):
         def triage_fn(key):
-            m = {"CVE": {}} if key == "inbox_dep_scan" else {}
-            return make_triage("BENIGN", advisory_metadata=m)(key)
-
-        out = ib.process_inbox(triage_fn=triage_fn,
-                               workflow_fn=MagicMock(),
-                               fault_inject_first=False)
-        dep = next(r for r in out["inbox_results"] if r["log_key"] == "inbox_dep_scan")
-        self.assertTrue(dep["has_dependency_evidence"])
-        err = next(r for r in out["inbox_results"] if r["log_key"] == "inbox_app_error")
-        self.assertFalse(err["has_dependency_evidence"])
-
-
-class TestClassificationMismatches(unittest.TestCase):
-    """Classification mismatches between expected and actual are tracked."""
-
-    def test_mismatch_recorded_when_model_disagrees_with_expected(self):
-        def triage_fn(key):
-            # Model says ACTIONABLE for the app error, but expected is BENIGN.
-            return make_triage("ACTIONABLE", advisory_metadata={})(key)
+            # Model says ACTIONABLE for the app error; expected BENIGN.
+            if key == "inbox_app_error":
+                return make_triage("ACTIONABLE")(key)
+            return make_triage("BENIGN")(key)
 
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=MagicMock(),
                                fault_inject_first=False)
         mismatches = out["classification_mismatches"]
         app_err = [m for m in mismatches if m["log_key"] == "inbox_app_error"]
-        self.assertTrue(len(app_err) > 0,
-                        f"expected mismatch for inbox_app_error, got {mismatches}")
+        self.assertTrue(app_err, f"expected mismatch for inbox_app_error, got {mismatches}")
         self.assertEqual(app_err[0]["expected"], "BENIGN")
         self.assertEqual(app_err[0]["actual"], "ACTIONABLE")
+
+    def test_investigate_signal_routes_correctly_despite_mismatch(self):
+        """A misclassified signal can still route correctly — the two
+        dimensions are evaluated independently."""
+        def triage_fn(key):
+            if key == "inbox_app_error":
+                return make_triage("ACTIONABLE")(key)
+            return make_triage("BENIGN")(key)
+
+        out = ib.process_inbox(triage_fn=triage_fn,
+                               workflow_fn=MagicMock(),
+                               fault_inject_first=False)
+        # inbox_app_error: classification mismatch (expected BENIGN, got
+        # ACTIONABLE) but routing is investigate (not remediate) — the
+        # routing verdict for that signal is about safety, not accuracy.
+        err = next(r for r in out["inbox_results"]
+                   if r["log_key"] == "inbox_app_error")
+        self.assertEqual(err["policy_route"], "investigate")
+        self.assertEqual(err["expected_route"], "dismiss")
+        # Routing mismatch is also honestly recorded.
+        rm = [m for m in out["routing_mismatches"]
+              if m["log_key"] == "inbox_app_error"]
+        self.assertTrue(rm)
 
 
 class TestNoAttackOrExploitabilityClaims(unittest.TestCase):
@@ -338,10 +398,6 @@ class TestNoAttackOrExploitabilityClaims(unittest.TestCase):
     def test_no_attack_claims_in_results(self):
         def triage_fn(key):
             return make_triage("ACTIONABLE")(key)
-
-        def noop_workflow(**kw):
-            return {"id": "x", "status": "blocked", "events": [],
-                    "attempts": [], "elapsed_alert_to_tested_patch_ms": None}
 
         out = ib.process_inbox(triage_fn=triage_fn,
                                workflow_fn=noop_workflow,
