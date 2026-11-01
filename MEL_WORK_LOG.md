@@ -1911,3 +1911,24 @@ $ python -m pytest tests/ -q
 ### Status after checkpoint 22
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 23 — product landing page
+
+- Added `/` landing page and `/app` console route (console was previously `/`).
+- New files: `templates/landing.html`, `static/landing.css` (isolated from console styles).
+- Landing page: nav (wordmark, How it works anchor, GitHub, Open demo), hero with
+  editorial headline, product showcase (illustrative preview grounded in real UI
+  tokens — not a live screenshot), How it works (3 steps), Evidence before approval
+  (3 questions), CTA, footer with limitations.
+- All links relative (`/app`, `#how-it-works`). GitHub link opens in new tab.
+- No framework, dependency, or backend workflow changes. All API endpoints preserved.
+- `app/main.py`: `/` serves `landing.html`, `/app` serves `index.html` (console).
+- README updated to document `/` (landing) and `/app` (console) routes.
+- Verification: both routes return 200; CSS serves; 195 tests pass; browser snapshot
+  confirms all sections render (hero, showcase, steps, evidence, CTA, footer).
+- LIMITATION: browser toolset has no element-click or screenshot capability in this
+  session; desktop and narrow layout screenshots were not captured. Layout is
+  verified by CSS inspection (responsive grid, clamp typography, media queries) and
+  the browser_snapshot text render confirming all content is present and structured.
+- Committed locally; NOT pushed.
+- Paused.

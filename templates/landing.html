@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Night Shift — Agentic incident response</title>
+<link rel="stylesheet" href="/static/landing.css">
+</head>
+<body>
+
+<nav class="nav">
+  <a class="brand" href="/">Night Shift</a>
+  <div class="nav-links">
+    <a href="#how-it-works">How it works</a>
+    <a href="https://github.com/sreenidhbonagiri/night-shift" target="_blank" rel="noopener">GitHub</a>
+    <a class="btn-primary" href="/app">Open demo</a>
+  </div>
+</nav>
+
+<main>
+
+<section class="hero">
+  <span class="eyebrow">Agentic incident response</span>
+  <h1>From alert to a patch<br>you can approve.</h1>
+  <p class="hero-copy">Night Shift triages signals, prepares a dependency change, and verifies it before asking for your approval.</p>
+  <div class="hero-actions">
+    <a class="btn-primary" href="/app">Open demo</a>
+    <a class="link-secondary" href="https://github.com/sreenidhbonagiri/night-shift" target="_blank" rel="noopener">View source</a>
+  </div>
+  <p class="hero-context">Local demo · Synthetic incidents · Human-approved release</p>
+</section>
+
+<section class="showcase" id="showcase">
+  <div class="app-frame">
+    <div class="app-frame-bar">
+      <span class="dot"></span>
+      <span class="app-frame-title">Night Shift — Incident workspace</span>
+    </div>
+    <div class="app-frame-body">
+      <div class="preview-diff">
+        <div class="preview-diff-header">
+          <span>Requirements diff</span>
+          <span class="preview-badge">SHA-256 bound</span>
+        </div>
+        <pre class="preview-diff-content"><span class="minus">-jinja2==3.1.2</span>
+<span class="plus">+jinja2==3.1.4</span></pre>
+      </div>
+      <div class="preview-qa">
+        <div class="preview-qa-header">QA verdict</div>
+        <div class="preview-qa-rows">
+          <div class="preview-row"><span class="label">Installed version</span><span class="value">3.1.4</span></div>
+          <div class="preview-row"><span class="label">Tests passed</span><span class="value">4/4</span></div>
+          <div class="preview-row"><span class="label">Artifact SHA-256</span><span class="value mono">a3f2b1c9…</span></div>
+        </div>
+        <div class="preview-uncertainty">Remaining uncertainty: exploitability unverified; historical advisory target only.</div>
+      </div>
+    </div>
+  </div>
+  <p class="showcase-caption">Illustrative preview of the incident workspace. The actual console requires running an analysis.</p>
+</section>
+
+<section class="how-it-works" id="how-it-works">
+  <h2>How it works</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">01</div>
+      <div class="step-body">
+        <h3>Investigate</h3>
+        <p>Separate benign signals, actionable findings, and uncertainty. Signals are classified and routed: dismiss, investigate, or remediate. Ambiguous cases go to human review.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">02</div>
+      <div class="step-body">
+        <h3>Verify</h3>
+        <p>The proposed change is installed in an isolated environment and tested. A failure here blocks progress — the model cannot override deterministic QA.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">03</div>
+      <div class="step-body">
+        <h3>Approve and release</h3>
+        <p>Review the exact artifact — dependency diff, test results, source citations, and remaining uncertainty — before a human decision gates local staging.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="evidence">
+  <h2>Evidence before approval</h2>
+  <div class="questions">
+    <div class="question">
+      <h3>What changed?</h3>
+      <p>A reviewable dependency diff — original and proposed requirements, unified diff, SHA-256 bound. No hidden changes.</p>
+    </div>
+    <div class="question">
+      <h3>What passed?</h3>
+      <p>Installed-version checks and regression results from an isolated test run. JUnit-structured per-test outcomes, not text heuristics.</p>
+    </div>
+    <div class="question">
+      <h3>What remains uncertain?</h3>
+      <p>Explicit limits and human handoff. Exploitability is unverified. The historical advisory target is not a current-security guarantee.</p>
+    </div>
+  </div>
+</section>
+
+<section class="cta">
+  <h2>Review the evidence. Make the call.</h2>
+  <a class="btn-primary" href="/app">Open demo</a>
+</section>
+
+</main>
+
+<footer class="footer">
+  <a href="https://github.com/sreenidhbonagiri/night-shift" target="_blank" rel="noopener">GitHub</a>
+  <span class="footer-note">Synthetic incidents. Local staging only. No production use. One controlled historical dependency-remediation workflow.</span>
+</footer>
+
+</body>
+</html>

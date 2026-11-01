@@ -326,8 +326,14 @@ def export_incident(incident_id: str):
     }
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
+@app.get("/app", response_class=HTMLResponse)
+def app_console(request: Request):
     with open(os.path.join(_templates_dir, "index.html"), "r", encoding="utf-8") as f:
+        return f.read()
+
+
+@app.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    with open(os.path.join(_templates_dir, "landing.html"), "r", encoding="utf-8") as f:
         return f.read()
 
