@@ -37,14 +37,12 @@ publishing.
 
 5. **Logs: none tracked.** `*.log` ignored; no log files in the index.
 
-6. **Personal paths: one file, intentional.** `MEL_WORK_LOG.md` contains
-   absolute paths under `<home>/…` (the working
-   directories of the Mel sessions and of the preserved original project).
-   These are part of the truthful provenance record. Options before
-   publishing: (a) publish as-is — the paths reveal only a username and
-   project names; or (b) mechanically rewrite them to `~/night-shift-mel`
-   style in a documented commit. The work log is otherwise
-   documentation-only with no runtime behavior.
+6. **Personal paths: none remaining (corrected in checkpoint 10).** The
+   only file that previously contained `<home>/<username>/…` absolute
+   paths was `MEL_WORK_LOG.md` (plus one audit reference); they are now
+   `<repo-root>/night-shift-mel` style placeholders. Factual attribution
+   and recovery history are preserved verbatim otherwise. The original
+   detailed work log is kept privately outside the repository.
 
 7. **Stray file: none.** A temporary marker file created during the
    dashboard rewrite was removed before commit and is not tracked.
@@ -59,11 +57,14 @@ publishing.
   `c5b3c35` → subsequent checkpoints) records Mel-authored commits; the
   work log records tool contributions (Mel terminal agent; no other
   code-generation tools were used in this tree).
-- `docs/example-export.json` is clearly labeled sanitized/example;
-  placeholder ids and hashes are marked, and the file contents it embeds
-  are the synthetic fixture files already public in the repo.
+- `docs/example-export.json` is clearly labeled an **illustrative
+  sanitized sample**: its identifiers, timestamps, and hashes were replaced
+  with placeholders and it is not presented as independently verifiable
+  raw test proof. The genuine capture of the successful run and a
+  sanitized proof copy (redacting only necessary personal information,
+  with no invented replacement evidence) are preserved privately outside
+  the repository.
 
 ## Conclusion
-The tracked tree contains no secrets, environments, logs, or runtime
-artifacts. The only publish decision is the personal-path wording in
-`MEL_WORK_LOG.md` (item 6). Nothing has been published.
+The tracked tree contains no secrets, environments, logs, runtime
+artifacts, or personal paths. Nothing has been published.

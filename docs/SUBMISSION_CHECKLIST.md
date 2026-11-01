@@ -66,14 +66,14 @@ published; "prepare" items are complete only to the point of being ready.
 - ☐ If a quote is added later, store the permission reference beside it.
 
 ## Sunday curveball
-- ☐ Rehearse a live failure response: the deliberate fail-closed paths are
-  the strongest material — (a) fault-injected 3.1.2 rejected on JUnit
-  evidence, (b) fabricated citation rejected by the grounding gate,
-  (c) grounding failure → honest human handoff with no proposal. Know how
-  to trigger and narrate each.
-- ☐ Keep a second Ollama model warm? — NO (project constraint: no model
-  changes/downloads). Instead, have the checkpoint-7 recorded run available
-  as backup evidence if the live model misbehaves.
+- ☑ **Correction (checkpoint 10):** the "Sunday curveball" is the
+  **organizer's actual new request**, not our own failure-path rehearsal.
+  This item stays **pending until the request is received and implemented**;
+  do not pre-empt it. (Rehearsing the fail-closed paths remains useful demo
+  preparation, recorded under Demo video above, but it is not the
+  curveball itself.)
+- ☐ Await the organizer's actual Sunday request; scope, implement, verify,
+  and record it when it arrives. Until then this checklist item is open.
 
 ## Pre-publish final pass
 - ☐ Run the secret/path audit script once more on the final tree.

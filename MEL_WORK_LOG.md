@@ -1073,3 +1073,66 @@ remains the proof.
 - Publishing decisions (repo visibility, license, work-log path wording,
   customer-quote permission) remain open on the checklist.
 - Paused after commit.
+
+## Checkpoint 10 — publication preparation (no publishing)
+
+### Changes (documentation only; no application behavior touched)
+1. **Personal paths redacted from tracked docs.** `MEL_WORK_LOG.md` and
+   `docs/SUBMISSION_AUDIT.md` previously contained `<home>/<username>/…`
+   absolute paths; these are now `<repo-root>/night-shift-mel`,
+   `<repo-root>/night-shift`, and `<home>/…` placeholders. A grep of all
+   tracked files for the username returns nothing. Factual attribution
+   and recovery history are otherwise unchanged. The original detailed
+   work log is preserved privately outside the repository
+   (`<repo-root>/night-shift-mel-private/MEL_WORK_LOG_FULL.md`).
+2. **`docs/example-export.json` relabeled.** Its `_sanitization_note` now
+   opens "ILLUSTRATIVE SANITIZED SAMPLE — NOT RAW TEST PROOF" and states
+   that identifiers, timestamps, and hashes are placeholders that cannot
+   be independently verified; it points readers to the private genuine
+   capture and to rerunning the workflow for verifiable proof.
+3. **Genuine export preserved privately; sanitized proof copy prepared.**
+   The application serves exports from an in-memory store, so the full
+   byte-for-byte export of the successful run was not on disk; what is
+   preserved is the exact run-time readback from
+   `/export/dea2bd9e-89b6-4055-aa96-b6205df515d3` (incident id,
+   40345.29 ms timing, fault-injected attempt rc=1/2 failures, model
+   attempt jinja2 3.1.4 4/4, applicability/uncertainty, both citations,
+   artifact sha256 prefix `e01113fd18eb4942`, requirements diff, staging
+   port/health/smoke, 42.2 s wall). The private folder holds:
+   `MEL_WORK_LOG_FULL.md`, `genuine-export-capture.json`,
+   `sanitized-proof-copy.json` (redacting only the incident id and
+   loopback port; no replacement evidence invented), and a README
+   describing all three. The on-disk artifact directory whose manifest
+   digest begins `e01113fd18eb4942` remains under the gitignored
+   `artifacts/` tree as corroborating physical evidence.
+4. **Submission checklist corrected.** The "Sunday curveball" is now
+   correctly described as the organizer's actual new request, left
+   pending until received and implemented — not our own failure-path
+   rehearsal (rehearsal remains listed under Demo video preparation).
+5. **`docs/SUBMISSION_AUDIT.md` updated** for items 1–3 (finding 6:
+   personal paths none remaining; example-export paragraph: illustrative
+   sample + private genuine/proof copies; conclusion updated).
+
+### Verification results
+```
+$ python -c "import json; json.load(open('docs/example-export.json'))"
+example-export.json: valid JSON
+$ python -c "import json; …private files…"
+private JSONs: valid
+$ git ls-files | xargs grep -l '<username>'
+(no matches — no personal paths or usernames in tracked files)
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py --collect-only -q
+106 tests collected   (26 grounded + 64 acceptance + 16 staging — matches README)
+```
+No code changed this checkpoint; the app-import and suite checks from
+checkpoint 9 remain valid. No test-count churn introduced anywhere.
+
+### Status after checkpoint 10
+- Repository is publication-ready; nothing published or deployed.
+- Remaining submission items (from docs/SUBMISSION_CHECKLIST.md): choose
+  repo visibility/name and license, record the demo video, prepare the
+  Mel-session video/export, capture a fresh timestamped full-suite run as
+  test proof, await and implement the organizer's Sunday curveball, obtain
+  customer-quote permission if any quote is ever used, and run the final
+  pre-publish audit pass.
+- Paused after commit.
