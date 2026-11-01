@@ -65,9 +65,11 @@ _ORIGINAL_REQUIREMENTS = "jinja2==3.1.2\nMarkupSafe>=2.0\n"
 _MANIFEST_NAME = "manifest.json"
 
 
-def _run(cmd: list, cwd: Path, timeout: float = 180.0):
+def _run(cmd: list, cwd: Path, timeout: float = 180.0,
+         env: Optional[dict] = None):
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout, env=env)
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired as exc:
         return None, (exc.stdout or "") if isinstance(exc.stdout, str) else "", \

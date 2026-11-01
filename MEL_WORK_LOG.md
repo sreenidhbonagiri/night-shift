@@ -2283,3 +2283,64 @@ That gap and the two binding gaps are closed here.
 ### Status after checkpoint 29
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 30 — Fix verification side effect polluting Git checkout
+
+### Independent failure
+
+An independent run of the documented ordinary command
+`.venv/bin/python -m pytest tests/ -q` (no special environment settings)
+failed with:
+
+    Git proposal binding failed at approval: Dirty working tree: ?? __pycache__/
+
+After 9 failed, 39 passed, the run was stopped. Affected tests: genuine
+mutation scenario, approval binding recheck, and staging trust-boundary
+tests — any path that ran QA pytest in the Git checkout and then tried to
+approve it.
+
+### Root cause
+
+`verify_checkout` ran the committed pytest suite inside the proposal
+repository as a subprocess. That subprocess inherited the parent
+environment. When the parent did not set `PYTHONDONTWRITEBYTECODE`,
+pytest created `__pycache__` directories in the checkout. Verification
+succeeded, but the dirty-checkout gate in approval correctly rejected the
+now-untracked files. The earlier 229-pass result likely ran in an
+environment where `PYTHONDONTWRITEBYTECODE` was already set (e.g. a Mel
+pane or shell that exports it); I cannot establish that with certainty,
+but the fix removes that dependence entirely.
+
+### Smallest complete repair
+
+1. **Subprocess self-configures bytecode/cache suppression.**
+   `verify_checkout` now builds a fresh `env` for the pytest subprocess
+   with `PYTHONDONTWRITEBYTECODE=1` and `PYTEST_ADDOPTS=-p no:cacheprovider`.
+   It does not rely on the parent shell having any special setting.
+2. **`_run` accepts an optional `env` dict.** Extended in
+   `app/isolated_runner.py` so the verification subprocess can carry its
+   own clean environment while other callers keep their current behavior.
+3. **Generated JUnit already stayed outside the checkout** (written to the
+   temp workdir via absolute path); that is unchanged.
+4. **Dirty-checkout detection is preserved.** The gate still fails on
+   tracked modifications and unexpected untracked files. No git clean,
+   reset, or broad ignore rules were added.
+5. **Regression test added.**
+   `TestVerificationLeavesCheckoutClean::test_genuine_verification_keeps_checkout_clean_and_approvable`
+   explicitly removes `PYTHONDONTWRITEBYTECODE` and `PYTEST_ADDOPTS` from
+   the parent environment, runs genuine checkout verification, asserts the
+   working tree is clean and no `__pycache__` / `.pytest_cache` exist, and
+   then approves the unchanged proposal successfully.
+6. **Separate mutation test preserved.**
+   `TestMutationRejectionAtReleaseGate::test_mutation_rejected_by_release_gate`
+   still proves an actual requirements mutation blocks staging.
+
+### Verification
+
+- `env -u PYTHONDONTWRITEBYTECODE -u PYTEST_ADDOPTS .venv/bin/python -m pytest tests/test_git_proposal.py tests/test_git_proposal_repair.py tests/test_git_trust_boundary.py -q` → **32 passed**.
+- Documented ordinary command `.venv/bin/python -m pytest tests/ -q` → **230 passed, 0 failed**.
+- No redesign, no new features, no weakening of the dirty-checkout gate.
+
+### Status after checkpoint 30
+- Committed locally; NOT pushed.
+- Paused.

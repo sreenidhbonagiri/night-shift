@@ -14,6 +14,7 @@ approval record. All Git operations are local subprocess calls — no remote
 pushes, no credentials.
 """
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -261,12 +262,18 @@ def verify_checkout(proposal: dict) -> Dict[str, Any]:
 
         # 4. Run the committed tests against the committed app code. JUnit
         # output goes to the temp workdir (absolute path) so the fixture
-        # repo's working tree stays clean.
+        # repo's working tree stays clean. The subprocess explicitly
+        # suppresses bytecode and pytest caches so QA does not pollute the
+        # checkout (independent repro: __pycache__ made approval fail closed).
         junit_path = workdir / "junit.xml"
+        test_env = os.environ.copy()
+        test_env["PYTHONDONTWRITEBYTECODE"] = "1"
+        test_env["PYTEST_ADDOPTS"] = "-p no:cacheprovider"
         rc, test_out, test_err = _run(
             [str(python), "-m", "pytest", "-q",
              f"--junitxml={junit_path}"],
             cwd=repo_dir,
+            env=test_env,
         )
         result["pytest_returncode"] = rc
         result["test_output"] = (test_out + "\n" + test_err).strip()[-500:]
