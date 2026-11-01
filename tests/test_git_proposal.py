@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app import git_proposal as gp
 from app.inbox import _patch_eligibility
 from app.isolated_runner import REMEDIATION_PACKAGE
+from test_git_proposal_repair import _make_artifact
 
 
 class TestGitProposalCreation(unittest.TestCase):
@@ -29,16 +30,10 @@ class TestGitProposalCreation(unittest.TestCase):
 
     def setUp(self):
         self.incident_id = "git-test-001"
-        self.artifact_dir = tempfile.mkdtemp(prefix="ns-artifact-")
-        # Write minimal artifact files.
-        for f in ("main.py", "test_regression.py", "pytest.ini"):
-            (Path(self.artifact_dir) / f).write_text("# test\n")
-        (Path(self.artifact_dir) / "requirements.txt").write_text(
-            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
-        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+        self.artifact_dir = _make_artifact(self.incident_id)
 
     def tearDown(self):
-        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        shutil.rmtree(Path(self.artifact_dir).parent, ignore_errors=True)
         repo = gp._GIT_FIXTURE_ROOT / self.incident_id
         if repo.exists():
             shutil.rmtree(repo, ignore_errors=True)
@@ -81,15 +76,10 @@ class TestGitCheckoutVerification(unittest.TestCase):
 
     def setUp(self):
         self.incident_id = "git-verify-002"
-        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
-        for f in ("main.py", "test_regression.py", "pytest.ini"):
-            (Path(self.artifact_dir) / f).write_text("# test\n")
-        (Path(self.artifact_dir) / "requirements.txt").write_text(
-            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
-        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+        self.artifact_dir = _make_artifact(self.incident_id)
 
     def tearDown(self):
-        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        shutil.rmtree(Path(self.artifact_dir).parent, ignore_errors=True)
         repo = gp._GIT_FIXTURE_ROOT / self.incident_id
         if repo.exists():
             shutil.rmtree(repo, ignore_errors=True)
@@ -108,15 +98,10 @@ class TestApprovalBindingRecheck(unittest.TestCase):
 
     def setUp(self):
         self.incident_id = "git-bind-003"
-        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
-        for f in ("main.py", "test_regression.py", "pytest.ini"):
-            (Path(self.artifact_dir) / f).write_text("# test\n")
-        (Path(self.artifact_dir) / "requirements.txt").write_text(
-            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
-        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+        self.artifact_dir = _make_artifact(self.incident_id)
 
     def tearDown(self):
-        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        shutil.rmtree(Path(self.artifact_dir).parent, ignore_errors=True)
         repo = gp._GIT_FIXTURE_ROOT / self.incident_id
         if repo.exists():
             shutil.rmtree(repo, ignore_errors=True)
@@ -159,15 +144,10 @@ class TestMutationRejectionAtReleaseGate(unittest.TestCase):
 
     def setUp(self):
         self.incident_id = "integrity-004"
-        self.artifact_dir = tempfile.mkdtemp(prefix="ns-art-")
-        for f in ("main.py", "test_regression.py", "pytest.ini"):
-            (Path(self.artifact_dir) / f).write_text("# test\n")
-        (Path(self.artifact_dir) / "requirements.txt").write_text(
-            f"{REMEDIATION_PACKAGE}==3.1.2\nMarkupSafe>=2.0\n")
-        (Path(self.artifact_dir) / "manifest.json").write_text("{}")
+        self.artifact_dir = _make_artifact(self.incident_id)
 
     def tearDown(self):
-        shutil.rmtree(self.artifact_dir, ignore_errors=True)
+        shutil.rmtree(Path(self.artifact_dir).parent, ignore_errors=True)
         repo = gp._GIT_FIXTURE_ROOT / self.incident_id
         if repo.exists():
             shutil.rmtree(repo, ignore_errors=True)

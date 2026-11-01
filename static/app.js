@@ -414,6 +414,21 @@ function renderIncident(d, signal) {
   if (d.staging_release) detailHtml += `<details><summary>Staging release record</summary>${textPre(d.staging_release)}</details>`;
   detailHtml += '</div>';
 
+  // Git deliverable line: branch, commit, diff — only when verified.
+  const gitp = d.git_proposal || {};
+  let gitLine = '';
+  if (gitp && gitp.branch && gitp.proposal_commit && gitp.verified) {
+    gitLine = `<details style="display:inline-block;vertical-align:top"><summary class="kicker">Git proposal</summary>
+      <div style="background:var(--surface);border:1px solid var(--border-subtle);border-radius:6px;padding:8px 10px;font-size:12px;min-width:280px">
+        <div><span class="kicker">Branch</span> <code>${esc(gitp.branch)}</code></div>
+        <div><span class="kicker">Commit</span> <code>${esc(String(gitp.proposal_commit).slice(0, 12))}</code></div>
+        <pre style="margin:6px 0 0;font-size:12px;white-space:pre-wrap">${esc(gitp.diff || '')}</pre>
+      </div>
+    </details>`;
+  } else if (gitp && gitp.error) {
+    gitLine = `<span>${badge('Git deliverable failed verification', 'bad')}</span>`;
+  }
+
   $('incidentContent').innerHTML = `
     <div class="page-toolbar">
       <div class="page-toolbar-left">
@@ -435,6 +450,7 @@ function renderIncident(d, signal) {
       <span>Alert → tested patch <strong>${formatMs(d.elapsed_alert_to_tested_patch_ms)}</strong></span>
       <span>Attempts <strong>${attempts.length}</strong></span>
       ${firstEng?.fault_injection ? `<span>${badge('Fault injection on attempt 1', 'bad')}</span>` : ''}
+      ${gitLine}
     </div>
     <div class="incident-decision">
       <div>

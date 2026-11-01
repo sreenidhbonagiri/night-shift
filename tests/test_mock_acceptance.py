@@ -15,7 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -101,7 +101,29 @@ class ArtifactTmpBase(unittest.TestCase):
     def run_incident(self, **kw):
         kw.setdefault("artifact_dir_root", Path(self._tmp))
         kw.setdefault("sentry_fn", make_sentry("ACTIONABLE"))
-        return wf.run_incident(**kw)
+        # The Git deliverable stage is tested in test_git_proposal*.py; these
+        # workflow tests stub it so they keep testing QA/attempt logic.
+        with patch("app.git_proposal.create_proposal") as fake_create, \
+             patch("app.git_proposal.verify_checkout") as fake_verify:
+            fake_create.return_value = {
+                "repo_dir": "/tmp/ns-mock-git", "branch": "remediate-mock",
+                "base_commit": "b" * 40, "proposal_commit": "p" * 40,
+                "proposal_tree": "t" * 40, "diff": "-jinja2==3.1.2\n+jinja2==3.1.4",
+                "artifact_sha256": "x", "manifest": {}, "proposed_version": "3.1.4",
+            }
+            fake_verify.return_value = {
+                "proposal_commit": "p" * 40, "proposal_tree": "t" * 40,
+                "branch": "remediate-mock", "verified": True, "error": None,
+                "installed_version": "3.1.4",
+                "installed_version_source": "measured",
+                "installed_dependency_versions": {},
+                "pytest_returncode": 0, "collected_tests": 4,
+                "junit": {"tests": {t: "passed" for t in REQUIRED_TESTS},
+                          "total": len(REQUIRED_TESTS), "failures": 0,
+                          "errors": 0, "skipped": 0},
+                "required_tests_ok": True, "success": True, "test_output": "ok",
+            }
+            return wf.run_incident(**kw)
 
 
 # --------------------------------------------- 1. Installer boundary tests

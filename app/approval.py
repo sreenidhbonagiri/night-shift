@@ -138,6 +138,41 @@ def approve(incident: dict, actor: str = "human") -> dict:
             "utc_timestamp": _current_ts(),
         }
 
+    # Git binding: when Git delivery is part of the workflow, the verified
+    # checkout must pass verification and its exact commit/tree is recorded
+    # in the approval record. Staging rechecks against these values.
+    git_prop = incident.get("git_proposal")
+    git_binding = None
+    if isinstance(git_prop, dict) and git_prop.get("repo_dir"):
+        # The workflow stores verification fields flattened into the
+        # descriptor ({**proposal, **verification}); accept either shape.
+        verification = git_prop.get("verification") or git_prop
+        if not verification.get("verified"):
+            return {
+                "approved": False,
+                "error": (
+                    "Git proposal verification failed or missing; cannot "
+                    f"approve. Detail: {verification.get('error') or git_prop.get('error')}"
+                ),
+                "incident_id": incident.get("id"),
+                "utc_timestamp": _current_ts(),
+            }
+        from app import git_proposal as gp
+        binding_reason = gp.check_approval_binding(incident, git_prop)
+        if binding_reason:
+            return {
+                "approved": False,
+                "error": f"Git proposal binding failed at approval: {binding_reason}",
+                "incident_id": incident.get("id"),
+                "utc_timestamp": _current_ts(),
+            }
+        git_binding = {
+            "commit": git_prop.get("proposal_commit"),
+            "tree": git_prop.get("proposal_tree"),
+            "branch": git_prop.get("branch"),
+            "verified": True,
+        }
+
     approval_record = {
         "approved": True,
         "actor": actor,
@@ -151,6 +186,8 @@ def approve(incident: dict, actor: str = "human") -> dict:
         "utc_timestamp": _current_ts(),
         "note": "Human approval recorded; bound to this incident, patch, and artifact manifest only.",
     }
+    if git_binding:
+        approval_record["git"] = git_binding
     incident["human_approval"] = approval_record
     incident["status"] = "human_approved"
     incident["events"].append({"agent": "human", "action": "approval", **approval_record})

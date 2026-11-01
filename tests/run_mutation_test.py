@@ -1,114 +1,139 @@
-"""Bounded mutation-rejection scenario (C3).
+"""Bounded mutation-rejection scenario (C3, repaired).
 
-1. Produce a QA-verified proposal via mock.
-2. Record explicit approval.
-3. Mutate the approved requirements file.
-4. Attempt staging through the real release gate.
-5. Confirm rejection before env creation/install/process.
+1. Produce a genuinely QA-verified incident (real Git proposal + isolated
+   checkout verification, mocked model/runner layer as in the test suite).
+2. Record explicit approval through app.approval.approve (which binds the
+   Git commit/tree into the approval record).
+3. Mutate ONLY the Git checkout requirements file (uncommitted change).
+4. Call the real app.staging.release.
+5. Assert rejection specifically identifies the Git binding change, and
+   that environment creation (_make_env) and process start (_start) were
+   never invoked.
+
+Evidence is preserved privately before/after.
 """
 import json
 import os
 import shutil
 import sys
 import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app import git_proposal as gp
-from app.staging import _release_gate
+from app import workflow as wf
+from app import approval as approval_mod
+from app import staging as staging_mod
+from app.isolated_runner import REMEDIATION_PACKAGE, SUPPORTING_PINS
 
-PRIVATE = Path("/Users/sreenidhbonagiri/night-shift-mel-private/evaluation")
+PRIVATE = Path(os.environ.get(
+    "NS_PRIVATE_DIR",
+    os.path.expanduser("~/night-shift-mel-private/evaluation")))
 
 
-def main():
-    print("=== Mutation-rejection integrity check ===")
+def _persist_artifact(incident_id: str) -> dict:
+    """Persist a real artifact snapshot (trusted fixture files, real manifest)."""
+    from app.isolated_runner import persist_artifact
+    artifact = persist_artifact(incident_id, "3.1.4", fault_injection=False)
+    assert artifact is not None, "artifact persistence rejected 3.1.4"
+    return artifact
 
-    # Setup artifact dir
-    art_dir = tempfile.mkdtemp(prefix="ns-mut-")
-    for f in ("main.py", "test_regression.py", "pytest.ini"):
-        (Path(art_dir) / f).write_text("# test\n")
-    (Path(art_dir) / "requirements.txt").write_text("jinja2==3.1.2\nMarkupSafe>=2.0\n")
-    (Path(art_dir) / "manifest.json").write_text("{}")
 
-    inc_id = "integrity-mut-001"
-    prop = gp.create_proposal(inc_id, "3.1.4", art_dir, "sha256mut", {})
-    if "error" in prop:
-        print(f"Proposal failed: {prop['error']}")
-        return
+class MutationRejectionScenario(unittest.TestCase):
 
-    incident = {
-        "id": inc_id,
-        "status": "human_approved",
-        "human_approval": {
+    def test_mutation_rejected_by_staging_release_before_env(self):
+        incident_id = "integrity-mut-002"
+
+        # --- 1. Genuinely verified incident (workflow layer mocked for the
+        # model/runner; Git proposal + checkout verification are REAL). ---
+        artifact = _persist_artifact(incident_id)
+
+        def fake_sentry(log_key):
+            return {"disposition": "ACTIONABLE", "reason": "eval", "raw": ""}
+
+        def fake_engineer(context, previous_rejection=None):
+            return {"proposal": {"package": REMEDIATION_PACKAGE,
+                                 "version": "3.1.4"},
+                    "fault_injection": False, "investigation": {},
+                    "reason": "ok", "raw": "", "model": "mock",
+                    "elapsed_ms": 0.0, "error": None}
+
+        def fake_runner(art):
+            # Real isolated verification of the artifact snapshot.
+            from app.isolated_runner import verify_patch
+            return verify_patch(art)
+
+        incident = wf.run_incident(
+            log_key="actionable", fault_inject_first=False,
+            incident_id=incident_id,
+            engineer_fn=fake_engineer, sentry_fn=fake_sentry,
+            runner_fn=fake_runner, qa_fn=lambda v: {"approval": True, "reason": "ok"})
+
+        self.assertEqual(incident["status"],
+                         "tested_patch_awaiting_human_approval",
+                         f"workflow status: {incident.get('status')} — "
+                         f"{incident.get('reason')}")
+        git_prop = incident["git_proposal"]
+        self.assertTrue(git_prop.get("verified"),
+                        f"git verification: {git_prop.get('error')}")
+
+        # --- 2. Explicit approval binds Git commit/tree. ---
+        record = approval_mod.approve(incident)
+        self.assertTrue(record.get("approved"),
+                        f"approval failed: {record.get('error')}")
+        self.assertEqual(record["git"]["commit"], git_prop["proposal_commit"])
+        self.assertEqual(record["git"]["tree"], git_prop["proposal_tree"])
+
+        # --- Prove the UNCHANGED approved incident passes the gate. ---
+        gate_before = staging_mod._release_gate(incident)
+        self.assertIsNone(gate_before,
+                          f"clean approved incident must pass the gate: {gate_before}")
+
+        # --- 3. Mutate ONLY the Git checkout requirements. ---
+        mutated = gp.mutate_requirements_for_test(git_prop)
+        self.assertIn("9.9.9", mutated)
+
+        # --- 4/5. Call the real staging.release; assert Git-specific
+        # rejection before environment creation or process start. ---
+        env_calls = []
+        start_calls = []
+        with patch.object(staging_mod, "_make_env",
+                          side_effect=lambda *a, **k: env_calls.append(1) or None), \
+             patch.object(staging_mod, "_start",
+                          side_effect=lambda *a, **k: start_calls.append(1) or None):
+            result = staging_mod.release(incident)
+
+        self.assertFalse(result.get("released"),
+                         "staging.release must reject a mutated checkout")
+        err = (result.get("error") or "").lower()
+        self.assertIn("git", err)
+        # An uncommitted mutation surfaces as a dirty working tree; a
+        # committed change would surface as "changed after approval".
+        self.assertTrue(
+            "dirty working tree" in err or "changed after approval" in err,
+            f"rejection must identify the Git content/binding change: {err}")
+        self.assertEqual(env_calls, [], "_make_env must never be called")
+        self.assertEqual(start_calls, [], "_start must never be called")
+
+        # --- Preserve before/after evidence privately. ---
+        PRIVATE.mkdir(parents=True, exist_ok=True)
+        (PRIVATE / "mutation-rejection-report.json").write_text(json.dumps({
+            "scenario": "mutation_rejection_c3_repaired",
+            "incident_id": incident_id,
             "approved": True,
-            "actor": "human",
-            "incident_id": inc_id,
-            "patch": {"package": "jinja2", "version": "3.1.4"},
-            "artifact_sha256": "sha256mut",
-        },
-        "verified_patch": {
-            "package": "jinja2",
-            "version": "3.1.4",
-            "artifact_sha256": "sha256mut",
-            "artifact_dir": art_dir,
-            "manifest": {},
-            "git_proposal": prop,
-        },
-        "attempts": [{
-            "qa": {"approval": True},
-            "verification": {
-                "artifact_sha256": "sha256mut",
-                "artifact_dir": art_dir,
-                "manifest": {},
-                "installed_version": "3.1.4",
-                "pytest_returncode": 0,
-                "junit": {"tests": {}},
-                "success": True,
-                "installer_invoked": True,
-                "requirements_validated": True,
-            },
-        }],
-        "staging_release": {},
-    }
-
-    # Step 1-2: proposal + approval already set up above.
-
-    # Step 3: mutate
-    malicious = gp.mutate_requirements_for_test(prop)
-    print(f"Mutated requirements to: {malicious.strip()[:60]}...")
-
-    # Step 4: attempt staging
-    gate_result = _release_gate(incident)
-
-    # Step 5: confirm rejection
-    rejected = gate_result is not None
-    print(f"\nRelease gate result: {'REJECTED' if rejected else 'PASSED (unexpected!)'}")
-    if rejected:
-        print(f"Reason: {gate_result}")
-    else:
-        print("ERROR: mutation was NOT detected by the release gate!")
-
-    # Save report
-    PRIVATE.mkdir(parents=True, exist_ok=True)
-    report = {
-        "scenario": "mutation_rejection_c3",
-        "incident_id": inc_id,
-        "mutation_applied": True,
-        "release_rejected": rejected,
-        "rejection_reason": gate_result if rejected else None,
-        "proposal_commit": prop.get("proposal_commit"),
-        "branch": prop.get("branch"),
-    }
-    (PRIVATE / "mutation-rejection-report.json").write_text(json.dumps(report, indent=2))
-    print(f"\nReport saved to {PRIVATE / 'mutation-rejection-report.json'}")
-
-    # Cleanup
-    shutil.rmtree(art_dir, ignore_errors=True)
-    repo = gp._GIT_FIXTURE_ROOT / inc_id
-    if repo.exists():
-        shutil.rmtree(repo, ignore_errors=True)
+            "approval_git": record.get("git"),
+            "gate_before_mutation": gate_before,
+            "mutation_applied": mutated.strip(),
+            "release_rejected": True,
+            "rejection_reason": result.get("error"),
+            "env_creation_invoked": bool(env_calls),
+            "process_start_invoked": bool(start_calls),
+            "artifact_sha256": artifact.get("sha256"),
+        }, indent=2))
 
 
 if __name__ == "__main__":
-    main()
+    unittest.main(verbosity=2)

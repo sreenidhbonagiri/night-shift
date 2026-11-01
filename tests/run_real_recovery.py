@@ -4,6 +4,7 @@ Runs one end-to-end workflow against real Ollama, then exercises the full
 approval/staging/stop/export chain including Git proposal binding.
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -15,7 +16,9 @@ from app.approval import approve
 from app.staging import release as stage_release, stop as stage_stop
 from app.main import _incidents, _store_lock
 
-PRIVATE = Path("/Users/sreenidhbonagiri/night-shift-mel-private/evaluation")
+PRIVATE = Path(os.environ.get(
+    "NS_PRIVATE_DIR",
+    os.path.expanduser("~/night-shift-mel-private/evaluation")))
 
 
 def main():
@@ -45,7 +48,7 @@ def main():
 
     # Show Git proposal
     gp = incident.get("git_proposal", {})
-    if "error" not in gp:
+    if gp.get("verified"):
         print(f"Git branch: {gp.get('branch')}")
         print(f"Base commit: {gp.get('base_commit', '')[:12]}")
         print(f"Proposal commit: {gp.get('proposal_commit', '')[:12]}")

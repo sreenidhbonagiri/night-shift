@@ -265,6 +265,8 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
         }
 
         # Create a Git proposal branch as a concrete, reviewable deliverable.
+        git_ok = False
+        git_reason = None
         try:
             from app import git_proposal as gp
             git_prop = gp.create_proposal(
@@ -278,10 +280,30 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
                 # QA re-verifies from the actual Git checkout.
                 git_verify = gp.verify_checkout(git_prop)
                 incident["git_proposal"] = {**git_prop, **git_verify}
+                git_ok = bool(git_verify.get("verified"))
+                if not git_ok:
+                    git_reason = git_verify.get("error") or "Git checkout verification failed"
             else:
                 incident["git_proposal"] = git_prop or {"error": "Git proposal not created"}
+                git_reason = (git_prop or {}).get("error") or "Git proposal not created"
         except Exception as ex:
             incident["git_proposal"] = {"error": f"Git proposal error: {ex}"}
+            git_reason = f"Git proposal error: {ex}"
+
+        if not git_ok:
+            # Git delivery is part of this workflow: failed creation or
+            # verification blocks the approval-ready state with an honest
+            # handoff reason.
+            incident["status"] = "remediation_failed"
+            incident["elapsed_alert_to_tested_patch_ms"] = None
+            incident["reason"] = (
+                "QA-verified patch exists but the Git deliverable could not "
+                f"be verified: {git_reason}. Human handoff required; no "
+                "approval can be granted on an unverified Git proposal."
+            )
+            _publish()
+            return incident
+
         incident["elapsed_alert_to_tested_patch_ms"] = round(
             (time.monotonic() - monotonic_start) * 1000, 2)
         incident["reason"] = "QA-verified patch awaiting explicit human approval."

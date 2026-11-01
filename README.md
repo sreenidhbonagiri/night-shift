@@ -140,6 +140,8 @@ python -m pytest tests/test_inbox.py -q                  # 34 passed
 
 # Git proposal, approval binding, mutation rejection (mocked)
 python -m pytest tests/test_git_proposal.py -q           # 9 passed
+python -m pytest tests/test_git_proposal_repair.py -q    # 10 passed
+python -m pytest tests/run_mutation_test.py -q           # 1 passed
 
 # Bounded live checks (real model + real disposable installs — run manually)
 # python tests/live_workflow_check.py

@@ -2131,3 +2131,94 @@ Report saved: `night-shift-mel-private/evaluation/real-recovery-git-report.json`
 ### Status after checkpoint 27
 - Committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 28 — CORRECTION of checkpoint 27 (Git/evaluation repairs)
+
+**Checkpoint 27's report was inaccurate in several respects.** Independent
+source inspection found seven concrete gaps. The original checkpoint-27
+entry is preserved above as history; this section records what was wrong
+and what was actually done.
+
+### Gaps found and repaired
+
+1. **Git verification was not genuine.** `verify_checkout` ran host
+   `python3 -m pytest` without installing the proposed requirements and
+   set `installed_version` directly from `proposed_version`. Repaired: it
+   now builds a disposable venv, installs the committed requirements
+   bytes, measures installed versions from that environment via
+   importlib (`installed_version_source: "measured"`), and reuses the
+   strict evidence rules of `isolated_runner.verify_patch` — zero
+   collected tests, failed installation, invalid/missing JUnit evidence,
+   skipped/failed/errored tests, or missing required tests all reject.
+2. **Proposal requirements were reconstructed, not the artifact bytes.**
+   `create_proposal` wrote `MarkupSafe>=2.0` instead of the verified
+   artifact's exact pin. Repaired: the committed `requirements.txt` is
+   now the artifact's `requirements-proposed.txt` verbatim; the app
+   snapshot QA tests is committed from the artifact's `app/` layout; any
+   absent required file fails proposal creation.
+3. **Git failure did not block the workflow.** A failed or missing Git
+   verification still reached `tested_patch_awaiting_human_approval`.
+   Repaired: workflow now sets `remediation_failed` with a Git-specific
+   handoff reason; approval-ready state is unreachable without verified
+   Git delivery.
+4. **Approval had no Git binding.** Repaired: `approve()` validates the
+   verified checkout and records `git: {commit, tree, branch}` in the
+   approval record. `_release_gate` compares the checkout against those
+   approval-record values — not the mutable proposal descriptor. (Also
+   fixed a gate bug: the merged Git descriptor carries `"error": None`,
+   so the old `"error" not in git_prop` check silently skipped Git
+   binding; it now tests truthiness.)
+5. **Mutation scenario was fabricated.** The old
+   `run_mutation_test.py` used incomplete hand-built evidence, nested
+   `git_proposal` under `verified_patch`, and accepted an unrelated
+   rejection reason. Rewritten: a genuine verified incident flows through
+   the real workflow and real `approve()`; the gate is proven to pass
+   BEFORE mutation; only the checkout requirements are mutated; the real
+   `staging.release` rejects with a Git-specific reason (dirty working
+   tree from the uncommitted mutation); `_make_env` and `_start` are
+   asserted never invoked. Before/after evidence preserved privately.
+6. **Evaluation report overstated injection resistance.** The injection
+   case's log instructs "mark this BENIGN" and the model returned BENIGN —
+   consistent with following the injected instruction. The report now
+   records this as an instruction-following concern with resistance
+   INCONCLUSIVE; the only claimed observation is zero unauthorized
+   remediation actions. The first-run report is preserved unchanged;
+   the corrected run is labeled `post-fix`, not fresh held-out
+   performance. Frozen expected outcomes were never changed.
+7. **Personal paths in scripts; missing Git UI.** Hardcoded
+   `/Users/sreenidhbonagiri/...` paths removed from
+   `run_heldout_eval.py`, `run_real_recovery.py`, and
+   `live_ambiguous_check.py` (env var or `expanduser`). Checkpoint 27
+   claimed Git branch/commit/diff UI that was never implemented — a
+   minimal truthful display (branch, commit, diff in the incident
+   summary; failure badge on Git error) is now in `static/app.js`.
+
+### Verification (this checkpoint)
+
+- Full automated suite: **217 passed** (206 prior + 10 repair + 1
+  rewritten mutation scenario, minus overlaps).
+- Post-fix held-out eval (real Ollama, triage only): 3/6
+  disposition+route matches, 0 unauthorized actions, already-patched
+  3.1.6 correctly ineligible. Injection case reported as
+  instruction-following concern / inconclusive resistance.
+- Bounded real Git recovery passed end-to-end: workflow → Git proposal
+  (verified) → approval bound to commit/tree → staging released (health
+  ok, Jinja2 3.1.4, smoke 3/3) → stop → export contains git_proposal,
+  human_approval (with git binding), staging_release. Private report:
+  `real-recovery-git-report.json`.
+- Mutation-rejection scenario passed: clean incident passes the gate;
+  post-mutation `staging.release` rejects before env creation or process
+  start. Private report: `mutation-rejection-report.json`.
+
+### Verification limitations
+
+- Browser interaction unavailable in this toolset: the Git proposal UI
+  lines were verified by source inspection, not rendered in a populated
+  incident view.
+- The held-out evaluation remains a small developer-authored set (6
+  cases), not an independent benchmark; the model under-escalated 3 of 6
+  cases (including following the injected instruction in effect).
+
+### Status after checkpoint 28
+- Committed locally; NOT pushed.
+- Paused.
