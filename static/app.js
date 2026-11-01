@@ -149,11 +149,9 @@ function renderInboxResults(r) {
     const pe = x.patch_eligibility || {};
     const dispCls = x.disposition === 'BENIGN' ? 'good' : x.disposition === 'NEEDS_HUMAN_REVIEW' ? 'warn' : '';
     const routeCls = x.policy_route === 'remediate' ? 'good' : x.policy_route === 'human_review' ? 'warn' : '';
-    const service = (x.reason || '').match(/service=(\S+)/);
-    const svc = service ? service[1] : '—';
+    // Use readable description as the main label; fixture ID is secondary.
     return `<tr class="signal-row" tabindex="0" data-key="${esc(x.log_key)}">
-      <td>${esc(x.log_key)}</td>
-      <td>${esc(svc)}</td>
+      <td><strong>${esc(x.description || x.log_key)}</strong><br><small class="muted">${esc(x.log_key)}</small></td>
       <td>${badge(DISP_LABELS[x.disposition] || x.disposition, dispCls)}</td>
       <td>${badge(ROUTE_LABELS[x.policy_route] || x.policy_route, routeCls)}</td>
       <td>${esc(NEXT_ACTION[x.policy_route] || '—')}</td>
@@ -210,6 +208,9 @@ function selectSignal(key) {
   const signal = (state.inboxData.inbox_results || []).find(x => x.log_key === key);
   if (!signal) return;
 
+  // Update status bar to reflect this signal immediately
+  setStatus(ROUTE_LABELS[signal.policy_route] ? signal.description + ' — ' + ROUTE_LABELS[signal.policy_route] : signal.description);
+
   // If this is the remediation signal, open its connected incident
   if (signal.policy_route === 'remediate' && state.inboxData.recovery_incident_id) {
     loadIncident(state.inboxData.recovery_incident_id, signal);
@@ -254,11 +255,11 @@ function renderNonRemediationSignal(signal) {
   if (signal.policy_override) {
     html += `<div class="notice warn"><strong>Policy decision:</strong> ${esc(signal.policy_override)}</div>`;
   }
-  html += `<h3>Original log</h3><pre>${esc(signal.reason || '—')}</pre>`;
+  html += `<h3>Original log</h3><pre>${esc(signal.log || '—')}</pre>`;
 
-  // Model assessment separately accessible
-  if (signal.model_disposition || signal.model_assessed_severity) {
-    html += `<details><summary>Model assessment (unvalidated)</summary>
+  // Model reasoning separately accessible
+  if (signal.reason) {
+    html += `<details><summary>Model reasoning (unvalidated)</summary>
       <p class="kicker">Disposition: ${esc(signal.model_disposition || '—')} · Severity: ${esc(signal.model_assessed_severity || '—')}</p>
       <pre>${esc(signal.reason || '—')}</pre>
     </details>`;
@@ -293,10 +294,10 @@ function renderIncident(d, signal) {
 
   const steps = [
     ['Sentry', d.log_key ? 'Triage complete' : 'Not run', d.log_key ? 'active' : 'pending'],
-    ['Engineer', firstEng?.fault_injection ? 'Rejected (fault injection)' : 'Proposal interpreted', firstEng ? 'active' : 'pending'],
+    ['Engineer', (firstEng?.fault_injection && qaPassed) ? 'Recovered after rejected attempt' : (firstEng?.fault_injection ? 'Rejected (fault injection)' : 'Proposal interpreted'), firstEng ? 'active' : 'pending'],
     ['QA', qaPassed ? 'Verified patch' : firstEng ? 'Rejected' : 'Not run', qaPassed ? 'active' : (firstEng ? 'blocked' : 'pending')],
     ['Human', humanApproved ? 'Approved' : (qaPassed ? 'Awaiting approval' : 'Not eligible'), humanApproved ? 'active' : (qaPassed ? 'pending' : 'blocked')],
-    ['Staging', staged ? ('Released :'+d.staging_release.port) : (humanApproved ? 'Ready' : 'Awaiting approval'), staged ? 'active' : 'pending'],
+    ['Staging', stopped ? 'Stopped' : (staged ? ('Released :' + d.staging_release.port) : (humanApproved ? 'Ready' : 'Awaiting approval')), stopped ? 'active' : (staged ? 'active' : 'pending')],
     ['Stop', stopped ? 'Stopped' : (staged ? 'Running' : '—'), stopped ? 'active' : 'pending'],
   ];
 
@@ -511,6 +512,8 @@ async function reloadIncident() {
   const signal = state.inboxData ? (state.inboxData.inbox_results || []).find(x => x.log_key === state.selectedSignalKey) : null;
   renderIncident(d, signal);
   setStatus(statusLabel(d.status));
+  // Refresh evidence tab content to match current state
+  renderEvidence(d);
 }
 
 // ---- Evidence tab ----

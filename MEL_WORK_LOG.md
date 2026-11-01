@@ -1789,3 +1789,37 @@ $ python -m pytest tests/ -q
 ### Status after checkpoint 18
 - Redesign committed locally; NOT pushed.
 - Paused.
+
+## Checkpoint 19 — final UI corrections
+
+### Corrections applied
+1. Inbox rows: readable description as main label, fixture ID secondary.
+   Service column removed (was blank — no real service data in response;
+   deriving from model reasoning was incorrect).
+2. "Original log" now displays `signal.log` (the actual synthetic log
+   text); model reasoning displayed separately in a labeled disclosure.
+3. Evidence tab: `renderEvidence(d)` called on incident load and after
+   every action (approve/release/stop) so it shows current data; export
+   and timing populate immediately.
+4. Timeline Engineer step: "Recovered after rejected attempt" when QA
+   passed; rejected fault-injection attempt preserved in evidence detail.
+5. Timeline Staging step: shows "Stopped" when status is staging_stopped.
+6. Status bar updates on signal selection immediately (shows signal
+   description + route), not stale from previous incident.
+7. Narrow nav: `flex-wrap: nowrap; overflow-x: auto` — all tabs reachable
+   via horizontal scroll; evidence selector max-width constrained.
+
+### Verification
+- Full mock suite: **192 passed** (identical to before — no test changes).
+- Desktop screenshot (1280px): 4-column table, empty state visible only.
+- Narrow screenshot (375px): nav shows Inbox/Incident, Evidence reachable
+  via horizontal scroll (overflow-x: auto); no page-wide horizontal scroll.
+- LIMITATION: browser toolset has no element-click capability, so the
+  full journey (analyze → select → approve → release → health → stop →
+  export) cannot be driven through the rendered page. Corrections 1-6
+  are verified by code inspection and the 192 mock tests; correction 7
+  verified by screenshots.
+
+### Status after checkpoint 19
+- Corrections committed locally; NOT pushed.
+- Paused.
