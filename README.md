@@ -101,20 +101,38 @@ button for the full evidence export.
 6. **Stop local staging** when done. A **Record simulation instead** button
    exists as a secondary action and records no real deployment.
 
+### Test tooling (fresh environments)
+
+`pytest` is deliberately NOT in the shipped application `requirements.txt`
+— the runtime does not need it. Install the pinned test tooling separately:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install pytest==8.4.2
+```
+
 ## Tests
 
 ```bash
 source .venv/bin/activate
 
 # Grounded-investigation protocol, evidence gate, dashboard endpoints (mocked models)
-python -m pytest tests/test_grounded_live.py -q          # 26 passed
+python -m pytest tests/test_grounded_live.py -q          # 29 passed
+
+# Sentry triage: no expected-answer leak, evidence minimums, robust JSON
+python -m pytest tests/test_sentry_triage.py -q           # 11 passed
 
 # Acceptance suite: installer boundary, artifact persistence, JUnit parsing,
 # evidence gates, workflow scenarios, approval gates (all mocked)
 python -m pytest tests/test_mock_acceptance.py -q        # 64 passed
 
 # Staging lifecycle (mocked)
-python -m pytest tests/test_staging.py -q                # 16 passed
+python -m pytest tests/test_staging.py -q                # 17 passed
+
+# Release and verification gates (mocked)
+python -m pytest tests/test_release_gates.py -q          # 20 passed
 
 # Bounded live checks (real model + real disposable installs — run manually)
 # python tests/live_workflow_check.py

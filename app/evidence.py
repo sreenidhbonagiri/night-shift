@@ -76,15 +76,47 @@ def evaluate(verification: Any) -> dict:
 
     if isinstance(junit, dict) and isinstance(junit.get("tests"), dict) and not junit.get("parse_error"):
         statuses = junit["tests"]
-        checks["required_tests_all_passed"] = all(
-            statuses.get(t) == "passed" for t in REQUIRED_TESTS
+
+        # Strict aggregate counts: every aggregate must be a strict
+        # nonnegative integer and consistent with the testcase outcomes.
+        derived = {"total": 0, "failures": 0, "errors": 0, "skipped": 0}
+        outcomes_valid = True
+        for s in statuses.values():
+            if s == "passed":
+                derived["total"] += 1
+            elif s == "failed":
+                derived["total"] += 1
+                derived["failures"] += 1
+            elif s == "error":
+                derived["total"] += 1
+                derived["errors"] += 1
+            elif s == "skipped":
+                derived["total"] += 1
+                derived["skipped"] += 1
+            else:
+                # Unknown outcome value: cannot establish anything.
+                outcomes_valid = False
+        aggregates_consistent = outcomes_valid and all(
+            _is_strict_int(junit.get(k)) and junit.get(k) >= 0
+            and junit.get(k) == derived[k]
+            for k in ("total", "failures", "errors", "skipped")
+        )
+
+        checks["required_tests_all_passed"] = (
+            outcomes_valid
+            and all(statuses.get(t) == "passed" for t in REQUIRED_TESTS)
+            and aggregates_consistent
         )
         # Derived from per-test statuses, not from reported aggregates:
         # any failed/errored/skipped testcase blocks success, including
-        # tests outside the required four.
-        checks["no_failures"] = all(s != "failed" for s in statuses.values())
-        checks["no_errors"] = all(s != "error" for s in statuses.values())
-        checks["no_skips"] = all(s != "skipped" for s in statuses.values())
+        # tests outside the required four. Aggregates must also be strict,
+        # nonnegative, and consistent — and unknown outcomes are rejected.
+        checks["no_failures"] = outcomes_valid and aggregates_consistent \
+            and all(s != "failed" for s in statuses.values())
+        checks["no_errors"] = outcomes_valid and aggregates_consistent \
+            and all(s != "error" for s in statuses.values())
+        checks["no_skips"] = outcomes_valid and aggregates_consistent \
+            and all(s != "skipped" for s in statuses.values())
     else:
         checks["required_tests_all_passed"] = False
         checks["no_failures"] = False

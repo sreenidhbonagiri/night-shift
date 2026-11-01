@@ -247,11 +247,29 @@ def _health_gate(payload: Any, expected_version: str) -> Optional[str]:
     return None
 
 
+# Checks the staging /smoke endpoint must report, each strictly True.
+EXPECTED_SMOKE_CHECKS = (
+    "greeting_escapes_html",
+    "xmlattr_rejects_space",
+    "xmlattr_rejects_slash",
+)
+
+
 def _smoke_gate(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return f"smoke response is not a JSON object: {payload!r}"
     if payload.get("status") != "ok":
         return f"smoke status is {payload.get('status')!r}: {payload.get('checks')}"
+    checks = payload.get("checks")
+    if not isinstance(checks, dict):
+        return f"smoke checks missing or not an object: {checks!r}"
+    # Every expected check must be present and strictly True (truthy
+    # non-bool values like "yes" or 1 are not True).
+    for name in EXPECTED_SMOKE_CHECKS:
+        value = checks.get(name)
+        if value is not True:
+            return (f"smoke check {name!r} is not strictly True: {value!r} "
+                    f"(checks: {checks!r})")
     return None
 
 
@@ -433,6 +451,9 @@ def stop(incident: dict) -> dict:
     if record:
         record["running"] = False
         record["stopped_utc_timestamp"] = _ts()
+    # The displayed state must reflect the stop, not remain
+    # staging_released after the process is gone.
+    incident["status"] = "staging_stopped"
     incident["events"].append({"agent": "staging", "action": "stop",
                                "incident_id": incident_id,
                                "utc_timestamp": _ts()})

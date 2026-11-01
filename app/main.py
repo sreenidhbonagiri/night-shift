@@ -113,6 +113,10 @@ def workflow():
     Poll /workflow/status/{id} for live progress.
     Duplicate-submission guard: if a workflow is already running, returns
     the existing incident id instead of starting a new one.
+
+    The duplicate check, incident pre-registration, and workflow
+    reservation happen inside a single lock acquisition, so concurrent
+    submissions can never start two jobs.
     """
     with _store_lock:
         # Duplicate guard: if any workflow is already running, return it.
@@ -122,22 +126,33 @@ def workflow():
                         "message": "A workflow is already running. Poll /workflow/status/"
                                    + inc_id + " for progress."}
 
-    incident_id = str(uuid.uuid4())
-    # Pre-register the incident so status polling works immediately.
-    placeholder = {
-        "id": incident_id,
-        "status": "running",
-        "events": [],
-        "attempts": [],
-        "log_key": "actionable",
-    }
-    with _store_lock:
-        _incidents[incident_id] = placeholder
+        incident_id = str(uuid.uuid4())
+        # Pre-register the incident so status polling works immediately.
+        _incidents[incident_id] = {
+            "id": incident_id,
+            "status": "running",
+            "events": [],
+            "attempts": [],
+            "log_key": "actionable",
+        }
         _running_workflows[incident_id] = True
+
+    def _progress_cb(events, attempts, status):
+        """Publish real progress into the stored incident as it happens."""
+        with _store_lock:
+            current = _incidents.get(incident_id)
+            if current is None:
+                return
+            current["events"] = list(events)
+            current["attempts"] = list(attempts)
+            if status:
+                current["status"] = status
 
     def _run():
         try:
-            incident = run_incident(log_key="actionable", fault_inject_first=True)
+            incident = run_incident(log_key="actionable", fault_inject_first=True,
+                                    incident_id=incident_id,
+                                    progress_cb=_progress_cb)
             incident["id"] = incident_id  # keep the pre-registered id
             with _store_lock:
                 _incidents[incident_id] = incident
@@ -346,7 +361,7 @@ async function fetchJson(url,method){const r=await fetch(url,{method:method||'GE
 function setRunning(v){running=v;runWorkflowBtn.disabled=v;$('liveDot').classList.toggle('live',v);$('progressDot').classList.toggle('live',v);}
 function show(id){$(id).classList.remove('hidden');}
 function formatMs(ms){return ms==null?'No verified patch':(Number(ms)/1000).toFixed(1)+' seconds';}
-function statusLabel(s){return {'tested_patch_awaiting_human_approval':'Verified patch awaiting human approval','human_approved':'Human approved — local staging available','simulated_deployed':'Simulation recorded (no real deployment)','staging_released':'Released to real local staging','blocked':'Blocked: triage did not qualify','remediation_failed':'Remediation failed: QA rejected all attempts','needs_human_review':'Needs human review: grounding failed','running':'Recovery is running','error':'Recovery error'}[s]||s||'Unknown';}
+function statusLabel(s){return {'tested_patch_awaiting_human_approval':'Verified patch awaiting human approval','human_approved':'Human approved — local staging available','simulated_deployed':'Simulation recorded (no real deployment)','staging_released':'Released to real local staging','staging_stopped':'Local staging stopped','blocked':'Blocked: triage did not qualify','remediation_failed':'Remediation failed: QA rejected all attempts','needs_human_review':'Needs human review: grounding failed','running':'Recovery is running','error':'Recovery error'}[s]||s||'Unknown';}
 function badge(label,kind=''){return `<span class="badge ${kind}">${esc(label)}</span>`;}
 function metric(label,value,kind=''){return `<div class="metric ${kind}"><span class="kicker">${esc(label)}</span><strong>${esc(value)}</strong></div>`;}
 function renderTimeline(d){const events=d.events||[], attempts=d.attempts||[];const qa=attempts.some(a=>a.qa?.approval);const human=!!d.human_approval;const staged=!!d.staging_release?.released;const sim=!!d.simulated_deployment;const first=events.find(e=>e.agent==='engineer');const steps=[['Sentry',d.log_key?'Triage complete':'Not run',d.log_key?'active':'pending'],['Engineer',d.status==='needs_human_review'?'Grounding handoff':first?.fault_injection?'Recovered after rejected fault':'Proposal interpreted',d.status==='needs_human_review'?'blocked':first?'active':'pending'],['QA',qa?'Verified version + tests':first?'Rejected patch':'Not run',qa?'active':first?'blocked':'pending'],['Human',human?'Approval recorded':qa?'Awaiting explicit approval':'Not eligible',human?'active':qa?'pending':'blocked'],['Local staging',staged?'Released on 127.0.0.1:'+d.staging_release.port:human?'Ready for release':'Awaiting approval',staged?'active':'pending'],['Simulation',sim?'Recorded — no deployment':human?'Optional secondary action':'Awaiting approval',sim?'active':'pending']];timeline.innerHTML=steps.map(x=>`<div class="step ${x[2]}"><strong>${esc(x[0])}</strong><small>${esc(x[1])}</small></div>`).join('');metrics.innerHTML=metric('Alert → tested patch',formatMs(d.elapsed_alert_to_tested_patch_ms),'good')+metric('QA decision',qa?'Approved':'Not approved',qa?'good':'warn')+metric('Current state',statusLabel(d.status),staged?'good':'');}

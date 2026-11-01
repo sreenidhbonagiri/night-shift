@@ -1171,3 +1171,101 @@ checkpoint 9 remain valid. No test-count churn introduced anywhere.
   customer-quote permission if any quote is ever used, and run the final
   pre-publish audit pass.
 - Paused after commit.
+
+## Checkpoint 12 — repair of independently reproduced failures (5 fixes)
+
+All five fixes implemented in Mel; each has a regression test written
+FIRST that reproduced the actual failure before the fix, with no weakened
+assertions or canned success.
+
+### Fix 1 — Grounding rejects any invalid citation
+- `app/engineer_agent.py`: `_grounding_problems` now takes
+  `citation_problems` and fails grounding when ANY citation is
+  unverified — even alongside valid citations (previously only an empty
+  verified list failed).
+- Regression: `test_mixed_valid_and_fabricated_citation_fails_grounding`
+  (failed before fix: proposal was returned with a fabricated citation;
+  passes after: needs_human_review, proposal None).
+
+### Fix 2 — Actual live progress
+- `app/workflow.py`: `run_incident` gained `incident_id` and
+  `progress_cb`; a `_publish()` helper fires after every event/attempt
+  mutation (Sentry, engineer, QA, terminal states).
+- `app/main.py`: `/workflow` duplicate-guard + pre-registration +
+  reservation merged into ONE `_store_lock` block (atomic
+  check-and-reserve); the background runner passes `progress_cb` that
+  publishes events/attempts/status into the stored incident as they
+  occur. Reconnection and duplicate-submission responses preserved.
+- Regressions: `test_intermediate_events_visible_while_workflow_running`
+  (event_count was 0 while running before the fix) and
+  `test_concurrent_workflow_submissions_start_one_job` (4 racing
+  submissions start exactly one workflow).
+
+### Fix 3 — Triage honesty
+- `app/sentry_agent.py`: synthetic fixture logs no longer embed the
+  expected-answer label; scenario labels kept in separate
+  `SCENARIO_LABELS` and `synthetic: True` provenance in the output.
+  Minimum-evidence policy (`MIN_CITED_EVIDENCE`, `MIN_CONFIDENCE=0.7`):
+  BENIGN/ACTIONABLE without cited evidence or adequate confidence
+  escalates to NEEDS_HUMAN_REVIEW — BENIGN cannot substitute for
+  uncertainty. Model outputs that are arrays, nulls, missing or
+  malformed fields escalate without exceptions; original model
+  assessment (`model_disposition`) and `policy_override` reason are
+  preserved.
+- Regressions: `tests/test_sentry_triage.py` (11 tests; 7 failed before
+  the fix).
+
+### Fix 4 — Release and verification gates
+- `app/approval.py`: `_find_verified_patch` requires dict verification
+  AND qa (None-safe); `simulate_deploy` requires the stored approval
+  `approved is strictly True` and `incident_id` matching the current
+  incident (non-transferable). Hash/version binding and manifest
+  rechecks preserved.
+- `app/evidence.py`: JUnit aggregate counts must be strict nonnegative
+  integers consistent with derived testcase outcomes; unknown outcome
+  values (e.g. "PASSED", None) rejected.
+- `app/staging.py`: `_smoke_gate` requires status "ok" AND every
+  expected check (`greeting_escapes_html`, `xmlattr_rejects_space`,
+  `xmlattr_rejects_slash`) present and strictly True (truthy non-bools
+  rejected).
+- Regressions: `tests/test_release_gates.py` (20 tests; 13 failed
+  before the fix).
+
+### Fix 5 — Honest states and setup
+- `app/workflow.py`: grounding handoffs now have
+  `elapsed_alert_to_tested_patch_ms: None` with separate
+  `elapsed_alert_to_handoff_ms` recorded.
+- `app/approval.py`: verification=None / qa=None attempts are safely
+  rejected at both approval and release boundaries.
+- `app/staging.py`: `stop()` sets incident status `staging_stopped`
+  (dashboard label added in `app/main.py`).
+- `README.md`: documented pinned test tooling
+  (`pip install pytest==8.4.2`, kept out of shipped requirements.txt)
+  and updated suite counts.
+
+### Verification
+- Mock suites: **140 passed** (29 grounded + 11 triage + 64 acceptance +
+  17 staging + 20 release gates) — `python -m pytest tests/ -q`.
+- One bounded REAL recovery via `tests/live_repair_check.py`
+  (report: `live_repair_check_report.json`):
+  - Real workflow, status `tested_patch_awaiting_human_approval`,
+    2 attempts (fault-injected 3.1.2 rejected, 3.1.4 verified),
+    `elapsed_alert_to_tested_patch_ms` measured (not null).
+  - Intermediate events confirmed WHILE running: 4 progress snapshots,
+    agents sentry→engineer→qa visible before completion.
+  - Human approval granted; staging released on a real local port;
+    /health ok with jinja2 3.1.4; /smoke ok with all three checks
+    strictly True (strict gate passed); stop set status
+    `staging_stopped`; incident JSON fully serializable for export.
+  - Real triage: BENIGN log → BENIGN (cited evidence, no override);
+    ambiguous log → model said BENIGN with cited evidence and
+    confidence ≥ 0.7, so the evidence policy permitted it — escalation
+    is evidence-gated, not scenario-gated, by design. Noted honestly.
+- Remaining failures: none from the five reported areas.
+
+### Status after checkpoint 12
+- All five fixes implemented with regression coverage; mock suites green
+  (140); one bounded live recovery verified end-to-end including live
+  progress, gates, staging health/smoke, stopped state, and export.
+- Committed locally; NOT pushed (per instruction).
+- Paused.

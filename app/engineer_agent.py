@@ -134,7 +134,8 @@ def _citation_check(evidence: list, reads: list) -> tuple[list, list]:
 
 def _grounding_problems(collection_problems: list, reads: list, files_read: list,
                         declared_version: Optional[str],
-                        evidence: list, verified: list) -> list:
+                        evidence: list, verified: list,
+                        citation_problems: Optional[list] = None) -> list:
     """Mandatory grounding gate. Returns a list of problems (empty = pass)."""
     problems = list(collection_problems)
 
@@ -160,8 +161,18 @@ def _grounding_problems(collection_problems: list, reads: list, files_read: list
     if not isinstance(evidence, list) or not evidence:
         problems.append("no evidence citations were provided")
 
-    # All citations must be verified.
-    if evidence and not verified:
+    # ALL citations must be verified: any unverified citation fails
+    # grounding, even alongside valid ones. (Regression: previously only
+    # an empty verified list failed.)
+    if citation_problems:
+        problems.append(
+            f"{len(citation_problems)} unverified citation(s) present: "
+            + "; ".join(citation_problems))
+
+    # All citations must be verified (empty verified list with non-empty
+    # evidence is already covered by citation_problems above, but keep the
+    # explicit check for the evidence-present-but-none-verified case).
+    if evidence and not verified and not citation_problems:
         problems.append("no evidence citations were verified against the recorded reads")
 
     # Must have verified evidence from application source.
@@ -314,7 +325,8 @@ def _interpret(advisory_context: str, reads: list, collection_problems: list,
 
     # Check grounding.
     grounding_problems = _grounding_problems(
-        collection_problems, reads, files_read, declared_version, evidence, verified)
+        collection_problems, reads, files_read, declared_version, evidence,
+        verified, citation_problems)
 
     investigation = {
         "tool_calls": reads,

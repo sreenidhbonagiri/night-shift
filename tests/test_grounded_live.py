@@ -225,7 +225,29 @@ class TestGroundingGate(unittest.TestCase):
         inv = out["investigation"]
         self.assertTrue(inv["needs_human_review"])
         self.assertTrue(any("was not read" in p for p in inv["citation_problems"]))
-        self.assertTrue(any("citations were verified" in p
+        self.assertTrue(any("unverified citation" in p.lower()
+                            for p in inv["grounding_problems"]))
+
+    def test_mixed_valid_and_fabricated_citation_fails_grounding(self):
+        """REGRESSION (independently reproduced failure): a fabricated
+        citation alongside valid citations must fail grounding, not pass
+        on the strength of the valid ones."""
+        resp = make_interpretation_response()
+        resp["evidence"] = [
+            {"file": "main.py", "line": 10, "finding": "valid citation"},
+            {"file": "requirements-affected.txt", "line": 4,
+             "finding": "valid citation"},
+            {"file": "test_regression.py", "line": 5,
+             "finding": "fabricated: file was never collected"},
+        ]
+        out = engineer_agent.propose_upgrade("ctx", None,
+                                             model_fn=fake_model_fn(resp))
+        self.assertIsNone(out["proposal"])
+        inv = out["investigation"]
+        self.assertTrue(inv["needs_human_review"])
+        self.assertTrue(any("was not read" in p for p in inv["citation_problems"]))
+        # Grounding must name the unverified citations as a problem.
+        self.assertTrue(any("unverified citation" in p.lower()
                             for p in inv["grounding_problems"]))
 
     def test_out_of_range_citation_fails_verification(self):
@@ -367,7 +389,10 @@ class TestLiveProgress(unittest.TestCase):
             "attempts": [],
             "elapsed_alert_to_tested_patch_ms": 12345.67,
         }
-        with patch("app.main.run_incident", return_value=mock_incident):
+        with patch("app.main.run_incident",
+                   side_effect=lambda **kw: {**mock_incident,
+                                             "id": kw.get("incident_id",
+                                                          mock_incident["id"])}):
             resp = self.client.post("/workflow")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
@@ -405,6 +430,114 @@ class TestLiveProgress(unittest.TestCase):
         with _store_lock:
             _running_workflows.clear()
 
+    def test_intermediate_events_visible_while_workflow_running(self):
+        """REGRESSION (independently reproduced failure): while a workflow
+        is deliberately paused mid-operation, polling must expose the
+        events that already occurred — not wait for completion."""
+        import threading as _threading
+        from app.main import _incidents, _running_workflows, _store_lock
+
+        pause_evt = _threading.Event()
+        resumed_evt = _threading.Event()
+
+        def slow_run_incident(**kwargs):
+            # Two events happen, then the operation pauses (Sentry done,
+            # fault-injection attempt pending). run_incident's real
+            # signature accepts these kwargs.
+            prog = kwargs.get("progress_cb")
+            events = [
+                {"agent": "sentry", "disposition": "ACTIONABLE",
+                 "utc_timestamp": "2026-11-01T00:00:00+00:00"},
+                {"agent": "engineer", "fault_injection": True,
+                 "utc_timestamp": "2026-11-01T00:00:01+00:00"},
+            ]
+            if prog:
+                prog(events, [], None)
+            pause_evt.wait(timeout=10)  # hold the operation open
+            resumed_evt.set()
+            return {
+                "id": kwargs.get("incident_id", "done-id"),
+                "status": "tested_patch_awaiting_human_approval",
+                "events": events,
+                "attempts": [],
+                "elapsed_alert_to_tested_patch_ms": 1.0,
+            }
+
+        with patch("app.main.run_incident", side_effect=slow_run_incident):
+            resp = self.client.post("/workflow")
+            inc_id = resp.json()["id"]
+
+            # While the operation is paused, polling must already see the
+            # two completed events.
+            st = self.client.get(f"/workflow/status/{inc_id}").json()
+            self.assertTrue(st["running"])
+            self.assertGreaterEqual(st["event_count"], 2)
+            self.assertIn("sentry", st["agents_completed"])
+
+            # The incident record itself must carry the events (not just
+            # the placeholder) while running.
+            with _store_lock:
+                live = _incidents.get(inc_id) or {}
+            self.assertGreaterEqual(len(live.get("events", [])), 2)
+
+            pause_evt.set()
+            resumed_evt.wait(timeout=5)
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                st = self.client.get(f"/workflow/status/{inc_id}").json()
+                if not st["running"]:
+                    break
+                time.sleep(0.02)
+            self.assertFalse(st["running"])
+
+    def test_concurrent_workflow_submissions_start_one_job(self):
+        """REGRESSION: checking/reserving the active workflow must be
+        atomic — concurrent submissions cannot start two jobs."""
+        import threading as _threading
+        from app.main import _incidents, _running_workflows, _store_lock
+
+        with _store_lock:
+            _incidents.clear()
+            _running_workflows.clear()
+
+        started = []
+        release = _threading.Event()
+
+        def slow_run_incident(**kwargs):
+            started.append(kwargs.get("incident_id"))
+            release.wait(timeout=10)
+            return {"id": kwargs.get("incident_id"), "status": "blocked",
+                    "events": [], "attempts": []}
+
+        results = []
+        barrier = _threading.Barrier(4)
+
+        def submit():
+            barrier.wait(timeout=5)
+            with patch("app.main.run_incident", side_effect=slow_run_incident):
+                resp = self.client.post("/workflow")
+                results.append(resp.json())
+
+        threads = [_threading.Thread(target=submit) for _ in range(4)]
+        for t in threads:
+            t.start()
+        # Give the submissions a moment to race; they should all be served
+        # while the single reserved workflow is still running.
+        time.sleep(0.5)
+        release.set()
+        for t in threads:
+            t.join(timeout=10)
+
+        self.assertEqual(len(started), 1,
+                         f"expected exactly one workflow to start, got {started}")
+        # All four submissions must receive the SAME incident id.
+        ids = {r.get("id") for r in results}
+        self.assertEqual(len(ids), 1, f"responses disagree on id: {results}")
+        # At most one 'started' message; the rest must be duplicate-guard
+        # responses pointing at the same id.
+        for r in results:
+            self.assertEqual(r.get("id"), started[0])
+
     def test_workflow_status_not_found(self):
         st = self.client.get("/workflow/status/nonexistent").json()
         self.assertIn("error", st)
@@ -417,7 +550,10 @@ class TestLiveProgress(unittest.TestCase):
             "events": [],
             "attempts": [],
         }
-        with patch("app.main.run_incident", return_value=mock_incident):
+        with patch("app.main.run_incident",
+                   side_effect=lambda **kw: {**mock_incident,
+                                             "id": kw.get("incident_id",
+                                                          mock_incident["id"])}):
             resp = self.client.post("/workflow-sync")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()

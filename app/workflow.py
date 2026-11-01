@@ -84,7 +84,9 @@ def _artifact_diff(artifact_dir) -> Optional[str]:
 def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
                  engineer_fn=propose_upgrade, sentry_fn=triage,
                  runner_fn=verify_patch, qa_fn=qa_verify,
-                 artifact_dir_root=None) -> dict:
+                 artifact_dir_root=None,
+                 incident_id: Optional[str] = None,
+                 progress_cb=None) -> dict:
     """Run one end-to-end incident workflow.
 
     If fault_inject_first is True, the first attempt is a clearly labeled
@@ -92,21 +94,39 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
     actually reject it, and Engineer gets one corrected attempt.
 
     Agent functions are injectable for mock-based tests.
+
+    incident_id: use this pre-registered id instead of generating a new one
+    (the /workflow endpoint pre-registers before starting the background job).
+
+    progress_cb: optional callable(events, attempts, status) invoked after
+    every recorded event so live progress is published as operations occur,
+    rather than only at completion. It receives the incident's current
+    event list, attempt list, and status.
     """
     monotonic_start = time.monotonic()
     alert_ts = datetime.now(timezone.utc).isoformat()
 
     incident: dict = {
-        "id": str(uuid.uuid4()),
+        "id": incident_id or str(uuid.uuid4()),
         "log_key": log_key,
         "alert_utc": alert_ts,
         "events": [],
         "attempts": [],
     }
 
+    def _publish(status=None):
+        if progress_cb is not None:
+            try:
+                progress_cb(incident["events"], incident["attempts"],
+                           status or incident.get("status"))
+            except Exception:
+                # Progress publishing must never break the workflow.
+                pass
+
     # --- Sentry triage ---
     sentry = sentry_fn(log_key)
     incident["events"].append({"agent": "sentry", **sentry})
+    _publish()
     if sentry.get("disposition") != "ACTIONABLE":
         incident["status"] = "blocked"
         incident["reason"] = f"Sentry disposition is {sentry.get('disposition')}; remediation blocked. No patch attempts created."
@@ -152,8 +172,12 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
             })
             incident["status"] = "needs_human_review"
             incident["reason"] = engineer.get("reason", "Grounding failed.")
-            incident["elapsed_alert_to_tested_patch_ms"] = round(
+            # Honest timing: no tested patch exists, so alert-to-tested-patch
+            # stays null; record time-to-handoff separately.
+            incident["elapsed_alert_to_tested_patch_ms"] = None
+            incident["elapsed_alert_to_handoff_ms"] = round(
                 (time.monotonic() - monotonic_start) * 1000, 2)
+            _publish()
             return incident
 
         proposal = engineer.get("proposal")
@@ -212,6 +236,7 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
         incident["attempts"].append(attempt)
         incident["events"].append({"agent": "engineer", **engineer})
         incident["events"].append({"agent": "qa", **qa})
+        _publish()
 
         # Success only when both the shared evaluator accepts the execution
         # evidence AND QA approval is strictly True. An incomplete QA object
@@ -241,6 +266,7 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
         incident["elapsed_alert_to_tested_patch_ms"] = round(
             (time.monotonic() - monotonic_start) * 1000, 2)
         incident["reason"] = "QA-verified patch awaiting explicit human approval."
+        _publish()
     else:
         incident["status"] = "remediation_failed"
         incident["elapsed_alert_to_tested_patch_ms"] = None
@@ -248,4 +274,5 @@ def run_incident(log_key: str = "actionable", fault_inject_first: bool = True,
             f"All {MAX_ATTEMPTS} remediation attempts were rejected by QA. "
             "No verified patch; no approval can be granted."
         )
+        _publish()
     return incident

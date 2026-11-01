@@ -302,6 +302,10 @@ class TestSuccessPath(StagingBase):
         self.assertFalse(inc["staging_release"]["running"])
         self.assertIn("stopped_utc_timestamp", inc["staging_release"])
 
+        # REGRESSION (independently reproduced failure): the displayed
+        # state must reflect the stop, not stay at staging_released.
+        self.assertEqual(inc["status"], "staging_stopped")
+
         # Second stop is rejected.
         stop2 = staging.stop(inc)
         self.assertFalse(stop2["stopped"])

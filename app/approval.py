@@ -19,9 +19,17 @@ def _current_ts() -> str:
 
 
 def _find_verified_patch(incident: dict) -> Optional[dict]:
-    """Return the QA-approved attempt in the incident, or None."""
+    """Return the QA-approved attempt in the incident, or None.
+
+    Attempts with missing (None) verification or qa evidence are never
+    treated as verified.
+    """
     for attempt in reversed(incident.get("attempts", [])):
-        if attempt.get("qa", {}).get("approval") is True:
+        qa = attempt.get("qa")
+        verification = attempt.get("verification")
+        if not isinstance(qa, dict) or not isinstance(verification, dict):
+            continue
+        if qa.get("approval") is True:
             return attempt
     return None
 
@@ -177,7 +185,32 @@ def simulate_deploy(incident: dict) -> dict:
         }
 
     approval = incident.get("human_approval", {})
+    if approval.get("approved") is not True:
+        return {
+            "simulated": False,
+            "error": "Stored approval record is not strictly approved; release prohibited.",
+            "incident_id": incident.get("id"),
+            "utc_timestamp": _current_ts(),
+        }
+    if approval.get("incident_id") != incident.get("id"):
+        return {
+            "simulated": False,
+            "error": (
+                f"Approval is bound to incident {approval.get('incident_id')!r}, "
+                f"not this incident ({incident.get('id')!r}); approvals are "
+                "non-transferable and release is prohibited."
+            ),
+            "incident_id": incident.get("id"),
+            "utc_timestamp": _current_ts(),
+        }
     verified = _find_verified_patch(incident)
+    if verified is None:
+        return {
+            "simulated": False,
+            "error": "No attempt with complete verification and QA evidence; release prohibited.",
+            "incident_id": incident.get("id"),
+            "utc_timestamp": _current_ts(),
+        }
     bound = incident.get("verified_patch", {})
     current_sha = verified.get("verification", {}).get("artifact_sha256") if verified else None
     current_version = verified.get("engineer", {}).get("proposal", {}).get("version") if verified else None

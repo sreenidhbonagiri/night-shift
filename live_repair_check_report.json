@@ -1,0 +1,96 @@
+{
+  "started_utc": "2026-11-01T05:18:20Z",
+  "recovery": {
+    "incident_id": "df21f08c-e60f-4c2e-92f5-dddfe6611ba8",
+    "status": "tested_patch_awaiting_human_approval",
+    "elapsed_alert_to_tested_patch_ms": 32906.65,
+    "attempts": 2,
+    "final_event_count": 5,
+    "progress_snapshots": [
+      {
+        "t": 4.74,
+        "status": null,
+        "event_count": 1,
+        "attempt_count": 0,
+        "agents": [
+          "sentry"
+        ]
+      },
+      {
+        "t": 13.27,
+        "status": null,
+        "event_count": 3,
+        "attempt_count": 1,
+        "agents": [
+          "engineer",
+          "qa",
+          "sentry"
+        ]
+      },
+      {
+        "t": 33.11,
+        "status": null,
+        "event_count": 5,
+        "attempt_count": 2,
+        "agents": [
+          "engineer",
+          "qa",
+          "sentry"
+        ]
+      },
+      {
+        "t": 33.11,
+        "status": "tested_patch_awaiting_human_approval",
+        "event_count": 5,
+        "attempt_count": 2,
+        "agents": [
+          "engineer",
+          "qa",
+          "sentry"
+        ]
+      }
+    ],
+    "saw_intermediate_events_while_running": true,
+    "snapshot_count": 4
+  },
+  "approval": {
+    "approved": true,
+    "error": null
+  },
+  "staging": {
+    "released": true,
+    "error": null,
+    "port": 53248,
+    "health": {
+      "status": "ok",
+      "jinja2": "3.1.4",
+      "MarkupSafe": "2.1.5"
+    },
+    "smoke": {
+      "status": "ok",
+      "checks": {
+        "greeting_escapes_html": true,
+        "xmlattr_rejects_space": true,
+        "xmlattr_rejects_slash": true
+      }
+    }
+  },
+  "stop": {
+    "stopped": true,
+    "incident_id": "df21f08c-e60f-4c2e-92f5-dddfe6611ba8",
+    "utc_timestamp": "2026-11-01T05:18:59.498249+00:00"
+  },
+  "export_bytes": 34036,
+  "triage_benign": {
+    "disposition": "BENIGN",
+    "model_disposition": "BENIGN",
+    "policy_override": null,
+    "reason": "The log indicates a successful health check completion, which is a normal operational event with no signs of issues."
+  },
+  "triage_ambiguous": {
+    "disposition": "BENIGN",
+    "model_disposition": "BENIGN",
+    "policy_override": null,
+    "reason": "The log indicates a possible dependency issue but lacks specific details for classification, which is a common false positive in monitoring systems."
+  }
+}
