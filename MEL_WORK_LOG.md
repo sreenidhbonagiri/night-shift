@@ -1651,3 +1651,72 @@ Bounded live run (`tests/live_inbox_check.py`, single run, report:
 - Committed locally; NOT pushed (both inbox commits remain unpushed
   with this one).
 - Paused.
+
+## Checkpoint 17 — fix inbox patch eligibility: package-associated version and affected-range check
+
+### Reproduced bugs
+1. "Jinja2 3.1.6 already patched for CVE-2024-34064" was incorrectly
+   eligible — `_VERSION_RE` matched the first `\d+\.\d+\.\d+` anywhere
+   in the log (3.1.6) and the advisory's affected range was never
+   checked, so patched versions authorized remediation.
+2. "Python 3.9.6 reports Jinja2 version unknown, CVE-2024-34064" was
+   incorrectly eligible — 3.9.6 (Python's version) was assigned to
+   jinja2 by the same loose regex.
+
+### Fixes in `_patch_eligibility` (`app/inbox.py`)
+1. **Package-associated version extraction.** Replaced the loose
+   `_VERSION_RE` with `_PKG_VERSION_RE` that matches a version
+   immediately after the package name (e.g. "jinja2 3.1.2",
+   "Jinja2==3.1.2", "jinja2-3.1.2"). A bare "3.1.2" or "Python 3.9.6"
+   does not satisfy this pattern.
+2. **Affected-range comparison.** Added `_ADVISORY_RANGES` (sourced
+   from `sentry_agent.ADVISORY_METADATA`, verified against GitHub
+   Security Advisory primary sources) and `_version_in_range()` to
+   check whether the identified version falls within the advisory's
+   affected range (e.g. "< 3.1.4"). Versions at or above the patched
+   version are rejected with `rejection_reason`.
+3. **Ambiguous-evidence detection.** If the log contains a loose
+   version number not associated with the package, `rejection_reason`
+   notes it as ambiguous; such signals route to investigate or
+   human_review, not remediation.
+4. **Contradictory evidence.** If the log says "jinja2 3.1.4" but also
+   mentions "3.1.2", only the package-associated version (3.1.4) is
+   used — and 3.1.4 is not in CVE-2024-34064's affected range, so it
+   is rejected.
+5. Engineer investigation and QA remain as subsequent checks; this
+   gate only decides whether the dependency workflow may start.
+
+### Direct tests added (`tests/test_inbox.py`, 34 total)
+Reproduced cases:
+- `test_patched_jinja2_version_not_eligible`: 3.1.6 + CVE-2024-34064
+  → not in affected range (< 3.1.4) → not eligible.
+- `test_unrelated_python_version_not_assigned_to_jinja2`: Python 3.9.6
+  + "Jinja2 version unknown" → no package-associated version →
+  ambiguous evidence → not eligible.
+
+Affected-range coverage per advisory:
+- CVE-2024-22195: 3.1.2 eligible, 3.1.3 (patched) not eligible, 3.1.5
+  not eligible.
+- CVE-2024-34064: 3.1.2 eligible, 3.1.4 (patched) not eligible, 3.1.6
+  not eligible.
+
+Missing/ambiguous evidence:
+- Bare version without package → no package at all.
+- "jinja2 is vulnerable" without associated version → missing
+  package-associated version.
+- "jinja2 3.1.4 but scanner also saw 3.1.2" → package-associated
+  version is 3.1.4, which is not in range → not eligible.
+
+### Mock suite
+```
+$ python -m pytest tests/ -q
+183 passed (29 grounded + 13 triage + 65 acceptance + 22 staging +
+20 release gates + 34 inbox)
+```
+
+### Status after checkpoint 17
+- Both reproduced bugs fixed; patched and unrelated versions cannot
+  authorize remediation; affected ranges enforced per advisory.
+- No live workflow re-run (isolated policy fix only).
+- Committed locally; NOT pushed.
+- Paused.

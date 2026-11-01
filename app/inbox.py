@@ -45,7 +45,9 @@ INBOX_BATCH = [
 ]
 
 # Patch eligibility requires ALL of: a supported package, a concrete
-# affected version, and a matching trusted advisory. Generic markers
+# affected version explicitly associated with that package (not an
+# unrelated version number elsewhere in the log), and a matching trusted
+# advisory whose affected range covers that version. Generic markers
 # such as "affected by" or "dependency scanner" alone are NOT sufficient
 # to authorize Jinja2 remediation.
 SUPPORTED_PACKAGES = ("jinja2",)
@@ -55,13 +57,59 @@ TRUSTED_ADVISORIES = {
     "ghsa-h5c8-rqwp-cp95": "jinja2",
     "ghsa-h75v-3vvj-5mfj": "jinja2",
 }
-_VERSION_RE = re.compile(r"\b\d+\.\d+\.\d+\b")
+
+# Version-range data sourced from sentry_agent.ADVISORY_METADATA (which
+# is verified against primary GitHub Security Advisory sources).
+# Each advisory maps to: (affected_spec, patched_version).
+# affected_spec is a string like "< 3.1.4" parsed by _version_in_range.
+# Keys are lowercase to match TRUSTED_ADVISORIES (the form found in
+# log text after .lower()).
+_ADVISORY_RANGES = {
+    adv.lower(): (sentry_agent.ADVISORY_METADATA[adv]["affected_versions"],
+                  sentry_agent.ADVISORY_METADATA[adv]["patched_version"])
+    for adv in sentry_agent.ADVISORY_METADATA
+}
+
+# Pattern: "jinja2 3.1.2" or "Jinja2==3.1.2" or "jinja2-3.1.2" — a
+# version number IMMEDIATELY associated with the package name, not a
+# loose version number elsewhere in the log (e.g. Python's version).
+_PKG_VERSION_RE = re.compile(
+    r"jinja2\s*[==\-<>~]*\s*(\d+\.\d+\.\d+)", re.IGNORECASE)
+_LOOSE_VERSION_RE = re.compile(r"\b\d+\.\d+\.\d+\b")
+
+
+def _parse_version(v: str) -> tuple:
+    """Parse '3.1.2' into (3, 1, 2) for comparison."""
+    parts = v.strip().split(".")
+    return tuple(int(p) for p in parts[:3])
+
+
+def _version_in_range(version: str, range_spec: str) -> bool:
+    """Check whether *version* falls within *range_spec*.
+
+    Supports the forms found in ADVISORY_METADATA:
+      "< X.Y.Z"  — version is strictly less than X.Y.Z.
+    Returns False for unrecognized range specs (conservative: reject).
+    """
+    v = _parse_version(version)
+    range_spec = range_spec.strip()
+    if range_spec.startswith("<"):
+        bound = _parse_version(range_spec[1:])
+        return v < bound
+    return False
 
 
 def _patch_eligibility(log_text: str) -> dict:
     """Check whether a signal carries the specific evidence required to
     authorize the fixed dependency remediation: a supported package, a
-    concrete affected version, and a matching trusted advisory.
+    concrete affected version explicitly associated with that package,
+    and a matching trusted advisory whose affected range covers that
+    version.
+
+    A version that is already at or above the advisory's patched version
+    is NOT eligible (the issue is already resolved). Missing, ambiguous,
+    or contradictory package-version evidence routes to investigation
+    or human review, not remediation.
 
     Repository investigation (Engineer grounding) and QA still validate
     the proposed change afterwards; this gate only decides whether the
@@ -71,24 +119,53 @@ def _patch_eligibility(log_text: str) -> dict:
     lower = text.lower()
     package = next((p for p in SUPPORTED_PACKAGES if p in lower), None)
     advisory = next((a for a in TRUSTED_ADVISORIES if a in lower), None)
-    version_match = _VERSION_RE.search(text)
+
+    # Extract a version EXPLICITLY associated with the supported package
+    # (e.g. "jinja2 3.1.2"), not an unrelated version (e.g. Python's).
+    pkg_version_match = _PKG_VERSION_RE.search(text)
+    pkg_version = pkg_version_match.group(1) if pkg_version_match else None
 
     missing = []
+    rejection_reason = None
+
     if not package:
         missing.append("supported package")
-    if not version_match:
-        missing.append("concrete affected version")
+    if not pkg_version:
+        missing.append("package-associated version")
     if not advisory:
         missing.append("matching trusted advisory")
     elif package and TRUSTED_ADVISORIES[advisory] != package:
         missing.append("advisory does not match the supported package")
 
+    # Even with package + version + advisory, the version must be within
+    # the advisory's affected range. A patched version is not eligible.
+    if not missing and advisory in _ADVISORY_RANGES:
+        affected_spec, patched = _ADVISORY_RANGES[advisory]
+        if not _version_in_range(pkg_version, affected_spec):
+            rejection_reason = (
+                f"version {pkg_version} is not in advisory {advisory} "
+                f"affected range ({affected_spec}); already patched or "
+                f"unaffected")
+            missing.append("version in affected range")
+
+    # If the log has a loose version NOT associated with the package
+    # (e.g. "Python 3.9.6") but no package-associated version, record
+    # it as ambiguous rather than letting it pass.
+    if not pkg_version and _LOOSE_VERSION_RE.search(text):
+        if "package-associated version" not in missing:
+            missing.append("package-associated version")
+        if not rejection_reason:
+            rejection_reason = (
+                "log contains a version number not explicitly associated "
+                "with the supported package; ambiguous evidence")
+
     return {
         "eligible": not missing,
         "package": package,
-        "version": version_match.group(0) if version_match else None,
+        "version": pkg_version,
         "advisory": advisory,
         "missing": missing,
+        "rejection_reason": rejection_reason,
     }
 
 

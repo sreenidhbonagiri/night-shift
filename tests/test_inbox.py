@@ -82,7 +82,8 @@ class TestEvaluationDimensions(unittest.TestCase):
 
 
 class TestPatchEligibility(unittest.TestCase):
-    """Patch eligibility requires package + version + advisory."""
+    """Patch eligibility requires package + package-associated version
+    within the advisory's affected range + matching trusted advisory."""
 
     def test_dep_scan_fixture_is_eligible(self):
         elig = ib._patch_eligibility(
@@ -91,6 +92,7 @@ class TestPatchEligibility(unittest.TestCase):
         self.assertEqual(elig["package"], "jinja2")
         self.assertEqual(elig["version"], "3.1.2")
         self.assertEqual(elig["advisory"], "cve-2024-34064")
+        self.assertIsNone(elig["rejection_reason"])
 
     def test_generic_error_not_eligible(self):
         elig = ib._patch_eligibility(
@@ -113,12 +115,116 @@ class TestPatchEligibility(unittest.TestCase):
     def test_package_without_version_not_eligible(self):
         elig = ib._patch_eligibility("jinja2 is mentioned with cve-2024-34064")
         self.assertFalse(elig["eligible"])
-        self.assertIn("concrete affected version", elig["missing"])
+        self.assertIn("package-associated version", elig["missing"])
 
     def test_unsupported_package_not_eligible(self):
         elig = ib._patch_eligibility("urllib3 1.26 affected by cve-2021-33503")
         self.assertFalse(elig["eligible"])
         self.assertIn("matching trusted advisory", elig["missing"])
+
+    # --- Reproduced cases (the two bugs this fix addresses) ---
+
+    def test_patched_jinja2_version_not_eligible(self):
+        """REGRESSION: 'Jinja2 3.1.6 already patched for CVE-2024-34064'
+        must NOT be eligible — 3.1.6 is NOT in the affected range
+        (< 3.1.4)."""
+        elig = ib._patch_eligibility(
+            "Jinja2 3.1.6 already patched for CVE-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertEqual(elig["package"], "jinja2")
+        self.assertEqual(elig["version"], "3.1.6")
+        self.assertEqual(elig["advisory"], "cve-2024-34064")
+        self.assertIn("version in affected range", elig["missing"])
+        self.assertIn("not in advisory", elig["rejection_reason"])
+
+    def test_unrelated_python_version_not_assigned_to_jinja2(self):
+        """REGRESSION: 'Python 3.9.6 reports Jinja2 version unknown,
+        CVE-2024-34064' must NOT assign 3.9.6 to Jinja2 — the version
+        is not explicitly associated with the package."""
+        elig = ib._patch_eligibility(
+            "Python 3.9.6 reports Jinja2 version unknown, CVE-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertEqual(elig["package"], "jinja2")
+        self.assertIsNone(elig["version"])
+        self.assertIn("package-associated version", elig["missing"])
+        self.assertIn("ambiguous", elig["rejection_reason"])
+
+    # --- Affected-range coverage for each supported advisory ---
+
+    def test_cve_2024_22195_affected_version_eligible(self):
+        """CVE-2024-22195 affects < 3.1.3; jinja2 3.1.2 is eligible."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.2 affected by cve-2024-22195")
+        self.assertTrue(elig["eligible"], elig)
+        self.assertEqual(elig["advisory"], "cve-2024-22195")
+
+    def test_cve_2024_22195_patched_version_not_eligible(self):
+        """CVE-2024-22195 patched at 3.1.3; jinja2 3.1.3 is NOT
+        eligible (already patched)."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.3 fixed for cve-2024-22195")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("version in affected range", elig["missing"])
+
+    def test_cve_2024_22195_later_version_not_eligible(self):
+        """jinja2 3.1.5 is NOT in CVE-2024-22195's affected range
+        (< 3.1.3)."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.5 with cve-2024-22195")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("version in affected range", elig["missing"])
+
+    def test_cve_2024_34064_affected_version_eligible(self):
+        """CVE-2024-34064 affects < 3.1.4; jinja2 3.1.2 is eligible."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.2 affected by cve-2024-34064")
+        self.assertTrue(elig["eligible"], elig)
+        self.assertEqual(elig["advisory"], "cve-2024-34064")
+
+    def test_cve_2024_34064_patched_version_not_eligible(self):
+        """CVE-2024-34064 patched at 3.1.4; jinja2 3.1.4 is NOT
+        eligible (already patched)."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.4 fixed for cve-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("version in affected range", elig["missing"])
+
+    def test_cve_2024_34064_later_version_not_eligible(self):
+        """jinja2 3.1.6 is NOT in CVE-2024-34064's affected range
+        (< 3.1.4)."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.6 with cve-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("version in affected range", elig["missing"])
+
+    # --- Missing / ambiguous package-version evidence ---
+
+    def test_version_with_no_package_not_associated(self):
+        """A bare version '3.1.2' without 'jinja2' nearby is ambiguous
+        and does not satisfy the package-associated version check."""
+        elig = ib._patch_eligibility(
+            "scanner reports version 3.1.2 affected by cve-2024-34064")
+        self.assertFalse(elig["eligible"])
+        # No jinja2 in text → no package at all.
+        self.assertIn("supported package", elig["missing"])
+
+    def test_jinja2_mentioned_without_associated_version(self):
+        """'jinja2 is vulnerable, CVE-2024-34064' has no version
+        explicitly associated with jinja2 — not eligible."""
+        elig = ib._patch_eligibility(
+            "jinja2 is vulnerable, CVE-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertIn("package-associated version", elig["missing"])
+
+    def test_contradictory_versions_not_eligible(self):
+        """If the log says 'jinja2 3.1.4' (patched) but also mentions
+        '3.1.2' elsewhere, only the package-associated version (3.1.4)
+        is used — and it's not in the affected range."""
+        elig = ib._patch_eligibility(
+            "jinja2 3.1.4 but scanner also saw 3.1.2 cve-2024-34064")
+        self.assertFalse(elig["eligible"])
+        self.assertEqual(elig["version"], "3.1.4")
+        self.assertIn("version in affected range", elig["missing"])
 
 
 class TestRouting(unittest.TestCase):
