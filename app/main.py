@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
 
@@ -309,7 +309,7 @@ def export_incident(incident_id: str):
     incident = _incidents.get(incident_id)
     if not incident:
         return {"error": "Incident not found. Run a workflow first.", "incident_id": incident_id}
-    return {
+    payload = {
         "evidence_disclaimer": (
             "Raw model responses (fields named 'raw') are model-generated text "
             "preserved as evidence. They are NOT validated security facts. "
@@ -324,6 +324,15 @@ def export_incident(incident_id: str):
         ),
         "incident": incident,
     }
+    return JSONResponse(
+        content=payload,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="night-shift-evidence-{incident_id}.json"'
+            )
+        },
+    )
 
 
 @app.get("/app", response_class=HTMLResponse)

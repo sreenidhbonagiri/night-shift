@@ -1943,3 +1943,36 @@ $ python -m pytest tests/ -q
 - Verified: CSS served at `/static/landing.css` contains the change;
   full mock suite still passes (195 passed).
 - Committed locally; NOT pushed.
+
+## Checkpoint 25 — genuine evidence download + honest citation wording
+
+1. **Export downloads a file.** `/export/{id}` now returns a
+   `JSONResponse` with `Content-Disposition: attachment;
+   filename="night-shift-evidence-{id}.json"` and `application/json`
+   content type. Payload unchanged. Frontend handler switched from
+   `window.open` (new tab) to `window.location.href`, so the browser
+   downloads the file and the dashboard stays open. No Blob workaround.
+2. **Citation wording matches the validator.** `_citation_check` confirms
+   each cited file was read and the cited line number exists in it — not
+   that the finding is semantically supported by that exact line (a live
+   run cited main.py:10 for code actually on line 11 and passed). UI
+   labels "Verified source citations" / "Verified citation record"
+   renamed to "Source citations (location-validated)"; the Evidence tab
+   disclosure now states exactly what validation does and does not
+   confirm. Original model citations and validation results untouched;
+   no model output corrected, no new model call.
+
+### Verification
+- New tests `TestExportDownload` (2): valid JSON, attachment filename
+  containing the matching incident id, disclaimer present; unknown-id
+  error shape unchanged. **197 passed** (195 + 2).
+- Live server check: `/export/...` returns `content-type: application/json`
+  (success-path attachment headers exercised in the TestClient test).
+- BROWSER DOWNLOAD NOT VERIFIED: the available browser tools render pages
+  but cannot execute a file download, so the completed in-browser
+  download was not observed. The Content-Disposition/JSON behavior is
+  verified at HTTP level only.
+
+### Status after checkpoint 25
+- Committed locally; NOT pushed.
+- Paused.

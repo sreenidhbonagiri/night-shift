@@ -562,3 +562,48 @@ class TestLiveProgress(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestExportDownload(unittest.TestCase):
+    """The /export/{id} endpoint must return a downloadable JSON attachment
+    with the matching incident id — not an inline tab view."""
+
+    @classmethod
+    def setUpClass(cls):
+        from fastapi.testclient import TestClient
+        from app.main import app
+        cls.client = TestClient(app)
+
+    def setUp(self):
+        from app.main import _incidents, _store_lock
+        with _store_lock:
+            _incidents.clear()
+
+    def test_export_returns_valid_json_attachment_with_matching_id(self):
+        from app.main import _incidents, _store_lock
+
+        incident = {
+            "id": "export-test-42",
+            "status": "tested_patch_awaiting_human_approval",
+            "log_key": "actionable",
+            "events": [],
+            "attempts": [],
+        }
+        with _store_lock:
+            _incidents[incident["id"]] = incident
+
+        r = self.client.get("/export/export-test-42")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.headers["content-type"].split(";")[0],
+                         "application/json")
+        disposition = r.headers.get("content-disposition", "")
+        self.assertIn("attachment", disposition)
+        self.assertIn("night-shift-evidence-export-test-42.json", disposition)
+        payload = r.json()
+        self.assertEqual(payload["incident"]["id"], "export-test-42")
+        self.assertIn("evidence_disclaimer", payload)
+
+    def test_export_unknown_incident_still_404_shape(self):
+        r = self.client.get("/export/does-not-exist")
+        self.assertEqual(r.status_code, 200)  # endpoint returns error body
+        self.assertIn("error", r.json())

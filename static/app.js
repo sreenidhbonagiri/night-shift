@@ -348,7 +348,7 @@ function renderIncident(d, signal) {
       ${metric('Artifact SHA-256', String(patch.artifact_sha256 || 'N/A').slice(0, 16) + '…')}
     </div>`;
     if (inv.evidence?.length) {
-      qaHtml += '<h3>Verified source citations</h3><div class="tablewrap"><table><thead><tr><th>Source</th><th>Line</th><th>Finding</th></tr></thead><tbody>';
+      qaHtml += '<h3>Source citations (location-validated)</h3><div class="tablewrap"><table><thead><tr><th>Source</th><th>Line</th><th>Finding</th></tr></thead><tbody>';
       for (const e of inv.evidence) {
         qaHtml += `<tr><td>${esc(e.file)}</td><td>${esc(e.line)}</td><td>${esc(e.finding)}</td></tr>`;
       }
@@ -603,7 +603,9 @@ function renderEvidence(d) {
       html += `<details><summary>Orchestrator-selected evidence reads</summary>${textPre(inv.tool_calls)}</details>`;
     }
     if (inv.evidence?.length) {
-      html += `<details><summary>Verified citation record</summary><div class="tablewrap"><table><thead><tr><th>Source</th><th>Line</th><th>Finding</th></tr></thead><tbody>`;
+      html += `<details><summary>Source citations (location-validated)</summary>
+        <p class="kicker" style="margin-bottom:6px">Validation confirms each cited file was actually read and the cited line number exists in it. It does not confirm that the stated finding is semantically supported by that exact line — read the citation yourself before relying on it.</p>
+        <div class="tablewrap"><table><thead><tr><th>Source</th><th>Line</th><th>Finding</th></tr></thead><tbody>`;
       for (const e of inv.evidence) {
         html += `<tr><td>${esc(e.file)}</td><td>${esc(e.line)}</td><td>${esc(e.finding)}</td></tr>`;
       }
@@ -639,7 +641,7 @@ function renderEvidence(d) {
 
 $('btnExport').onclick = () => {
   if (state.currentIncidentId) {
-    window.open('/export/' + state.currentIncidentId, '_blank');
+    window.location.href = '/export/' + state.currentIncidentId;
   }
 };
 
