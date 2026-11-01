@@ -834,6 +834,85 @@ installation reached.
   or external deployment.
 - Paused after logging.
 
+## Checkpoint 8 — acceptance reconciliation and dashboard operations-console polish
+
+### Acceptance-suite reconciliation
+The apparent acceptance count regression was not four lost tests:
+- Current `pytest --collect-only tests/test_mock_acceptance.py` collects **64**
+  tests; `pytest tests/test_mock_acceptance.py -q` confirms **64 passed**.
+- The baseline commit `8c5dc83` contained two classes named
+  `TestWorkflowScenarios` (at historical lines 525 and 657). The second class
+  duplicated five tests already defined by the first:
+  `test_full_workflow_verified`, `test_fault_injection_reaches_installer_and_rejected`,
+  `test_both_attempts_rejected`, `test_blocked_incident_no_attempts`, and
+  `test_engineer_rejection_prompt_uses_current_fields`.
+- The four tests initially thought lost —
+  `test_qa_true_with_invalid_evidence_leaves_failed`, `test_uuid_incident_id`,
+  `test_needs_human_review_blocked`, and `test_model_false_string_rejected` —
+  were never in that duplicate class and remain collected in the current
+  `TestWorkflowScenarios`.
+- A direct comparison of the repair commit's test method list with the
+  current list is empty. No distinct assertion coverage was removed, renamed,
+  or needs restoration. The earlier “60” was an incorrect reporting figure,
+  not a collected-test result.
+
+Actual collection/execution:
+```
+$ python -m pytest tests/test_mock_acceptance.py --collect-only -q
+64 tests collected
+$ python -m pytest tests/test_mock_acceptance.py -q
+64 passed
+$ python -m pytest tests/test_staging.py -q
+16 passed
+$ python -m pytest tests/test_grounded_live.py -q
+26 passed
+```
+
+### Dashboard polish (`app/main.py`, frontend only)
+Reworked the existing embedded dashboard without changing endpoints,
+workflow logic, approvals, manifests, or staging safeguards:
+- Dark-navy local operations console with readable system typography and
+  restrained teal state/action accents.
+- Clear primary “Run local recovery” action; live polling status, incident
+  id, agent/event counts, measured alert-to-tested-patch timing, and an
+  accurate six-stage recovery path.
+- Patch review before approval shows verified package/version, installed
+  version, artifact SHA-256 prefix, requirements diff, verified citations,
+  and structured per-test results.
+- QA decision, explicit human approval, real local staging, and optional
+  simulation are distinct states/actions. Local staging is primary after
+  approval; simulation is secondary and explicitly records no deployment.
+- Evidence reads are labeled orchestrator-selected; Engineer is described
+  as interpreting the recorded numbered contents. The detail panel keeps
+  actual executed reads, citations, JUnit, deterministic checks, model output,
+  and logs expandable. Raw model/log content is escaped into `<pre>` text;
+  evidence remains downloadable through the existing export endpoint.
+- Persistent disclosures cover synthetic input, deliberate fault injection,
+  historical remediation, localhost-only staging, and intentionally
+  unauthenticated local-demo approval.
+
+### Verification
+```
+$ python -m py_compile app/main.py
+$ python -m pytest tests/test_grounded_live.py tests/test_mock_acceptance.py tests/test_staging.py -q
+106 passed in 6.08s
+```
+Rendered browser verification on `http://127.0.0.1:8000/` confirmed the
+console shows recovery action, disclosures, live-progress region, patch
+review controls, local-staging-primary language, evidence/logs disclosure,
+and the complete synthetic/local-only/unauthenticated-approval notices.
+No new live package-installing recovery was run: dashboard changes are
+frontend-only and existing live staging verification remains recorded in
+checkpoint 7.
+
+### Status after checkpoint 8
+- Acceptance count reconciled: 64 actual acceptance tests; no distinct
+  coverage lost.
+- Dashboard polished without backend safeguard changes.
+- Mock suites pass (106). Local server stopped after browser verification.
+- No public hosting, external deployment, model change, or source copying.
+- Paused after commit.
+
 ## Checkpoint 7 — deterministic orchestrator-selected evidence collection
 
 Replaced the model-driven tool loop (which the local qwen3:4b could not
