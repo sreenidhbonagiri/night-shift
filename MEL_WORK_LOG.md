@@ -1,8 +1,94 @@
 # Night Shift — Mel Work Log
 
 ## Session
-- Date: 2026-10-31
+- Date: 2026-11-01
 - Working directory: `<repo-root>/night-shift-mel`
+
+## Staging checkpoint — real human-approved local staging (Mel-authored)
+
+Implemented from the recovered baseline entirely in this Mel session. No
+source or patches copied from the original night-shift project. The existing
+64-test integrity/QA suite passes unchanged.
+
+### New module `app/staging.py`
+Real local staging, kept strictly separate from
+`approval.simulate_deploy` (which remains simulation-only).
+
+Release gate (all before any process starts, all fail closed):
+- human approval record present and incident status `human_approved`
+- no staging process already running; no prior recorded release
+- the affected fault-injection version 3.1.2 can NEVER be released — even
+  with a forged approval record
+- approval binding must match the incident's verified patch exactly
+  (package, version, artifact_sha256)
+- execution-evidence checks recomputed at the release boundary
+- on-disk artifact manifest recomputed and compared with the verified
+  manifest (again before copying)
+
+Execution:
+- separate disposable venv built ONLY from the artifact snapshot's own
+  proposed requirements (application pins: jinja2 + MarkupSafe==2.1.5;
+  pytest is never shipped)
+- server runs a fixed trusted script (`server.py`, generated with fixed
+  content) with fixed arguments; binds 127.0.0.1 only
+- health gate: JSON with status "ok" AND installed jinja2 == approved pin
+  AND MarkupSafe == 2.1.5 exactly
+- smoke gate: XSS escaping + CVE-2024-22195 + CVE-2024-34064 checks
+- fail closed on malformed responses, wrong versions, startup exit, or
+  timeout — process stopped and staging directory removed
+- Popen objects live in a module registry keyed by incident id, never in
+  incident records (which stay JSON-serializable)
+- log file handle closed on Popen failure
+
+Lifecycle: `release`, `stop` (terminate→kill, remove staging dir), `status`.
+Release events (`release_succeeded`, `release_failed`, `stop`) and the
+`staging_release` record are preserved in the incident and its JSON export.
+
+### API (`app/main.py`)
+- `POST /incident/{id}/staging-release`
+- `POST /incident/{id}/staging-stop`
+- `GET  /incident/{id}/staging-status`
+All under the existing per-incident locks. Interface otherwise unchanged
+(the embedded dashboard does not yet expose staging; minimal for now).
+
+### Mock tests (`tests/test_staging.py`, 16 tests)
+Approval-required; forged 3.1.2 release rejected; approval version
+mismatch rejected; mutated artifact rejected; failed evidence rejected;
+duplicate prevention; wrong jinja2/MarkupSafe health versions fail closed;
+bad health status and non-dict (malformed) health payloads fail closed;
+smoke failure cleans up; startup exit cleans up; env build failure cleans
+up; success path records + stop + no double-stop + JSON-serializable
+incident + export events; gate failures recorded as `release_failed` events.
+
+### Verification results (actual)
+
+Mock suites:
+```
+python tests/test_staging.py           → Ran 16 tests, OK
+python tests/test_mock_acceptance.py   → Ran 64 tests, OK
+```
+
+One bounded live check (`tests/live_staging_check.py`), localhost only:
+- Workflow: 34.1s; attempt 1 fault-injected 3.1.2 (rc 1, 2 failures,
+  QA False), attempt 2 model 3.1.4 (rc 0, 0 failures, QA True).
+- Approval: True.
+- Release: True — version 3.1.4, port 64975, bound to 127.0.0.1;
+  health {"status":"ok","jinja2":"3.1.4","MarkupSafe":"2.1.5"};
+  smoke all three checks true.
+- Status: running, process_alive true.
+- Duplicate release: rejected ("A staging process is already running").
+- Direct external /health and /smoke on the staging port: both ok.
+- Stop: True; port closed after stop confirmed.
+- Export: staging events [release_succeeded, release_failed, stop]
+  present; staging_release record present.
+
+```
+[LIVE STAGING PASS]
+```
+
+Server stopped after the check.
+
+## Prior checkpoint (recovery)
 
 ## Recovery checkpoint (Mel-only reconstruction + integrity repair)
 

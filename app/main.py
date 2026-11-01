@@ -19,6 +19,7 @@ import httpx
 from app.workflow import run_incident
 from app.sentry_agent import triage, SYNTHETIC_FIXTURES
 from app.approval import approve, simulate_deploy
+from app import staging
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "qwen3:4b"
@@ -130,6 +131,39 @@ def simulate_deploy_endpoint(incident_id: str):
     with _get_lock(incident_id):
         incident = _incidents.get(incident_id)
         return simulate_deploy(incident)
+
+
+@app.post("/incident/{incident_id}/staging-release")
+def staging_release_endpoint(incident_id: str):
+    """Release the human-approved artifact to REAL local staging on 127.0.0.1.
+
+    Distinct from simulate-deploy: this runs the approved snapshot in a
+    separate environment, validates health/smoke, and records the release.
+    """
+    with _get_lock(incident_id):
+        incident = _incidents.get(incident_id)
+        if not incident:
+            return {"released": False, "error": "Incident not found",
+                    "incident_id": incident_id}
+        return staging.release(incident)
+
+
+@app.post("/incident/{incident_id}/staging-stop")
+def staging_stop_endpoint(incident_id: str):
+    with _get_lock(incident_id):
+        incident = _incidents.get(incident_id)
+        if not incident:
+            return {"stopped": False, "error": "Incident not found",
+                    "incident_id": incident_id}
+        return staging.stop(incident)
+
+
+@app.get("/incident/{incident_id}/staging-status")
+def staging_status_endpoint(incident_id: str):
+    incident = _incidents.get(incident_id)
+    if not incident:
+        return {"error": "Incident not found", "incident_id": incident_id}
+    return staging.status(incident)
 
 
 @app.get("/incident/{incident_id}")
