@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
@@ -22,11 +23,56 @@ from app.sentry_agent import triage, SYNTHETIC_FIXTURES
 from app.approval import approve, simulate_deploy
 from app import staging
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "qwen3:4b"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 ALLOWED = {"CRITICAL", "WARNING", "INFO", "FALSE_POSITIVE"}
 
 app = FastAPI(title="Night Shift")
+
+# CORS for public deployment: the frontend may be served from a different
+# origin (Vercel) than the execution backend. NS_CORS_ORIGIN, if set,
+# restricts the allowed origin; unset means same-origin (local dev).
+_cors_origin = os.environ.get("NS_CORS_ORIGIN")
+if _cors_origin:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[_cors_origin],
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+# Server-enforced authorization for public deployment.
+# NS_DEMO_TOKEN gates all state-mutating endpoints. If set, callers must
+# include Authorization: Bearer <token>. Read-only endpoints (GET) are
+# allowed without a token so the console can display status.
+_DEMO_TOKEN = os.environ.get("NS_DEMO_TOKEN")
+_MUTATING_PREFIXES = (
+    "/workflow",
+    "/inbox",
+    "/incident/",
+    "/sentry-classify",
+)
+
+
+@app.middleware("http")
+async def _auth_gate(request: Request, call_next):
+    """Bearer-token gate on mutating endpoints for public deployment."""
+    if not _DEMO_TOKEN:
+        return await call_next(request)
+    # Read-only: allow without token
+    if request.method == "GET":
+        return await call_next(request)
+    # Mutating: require matching bearer token
+    for prefix in _MUTATING_PREFIXES:
+        if request.url.path.rstrip("/").startswith(prefix):
+            auth = request.headers.get("authorization", "")
+            if not auth.startswith("Bearer ") or auth[7:] != _DEMO_TOKEN:
+                return JSONResponse(
+                    status_code=401,
+                    content={"error": "Unauthorized"},
+                )
+            break
+    return await call_next(request)
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(static_dir):

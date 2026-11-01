@@ -1,0 +1,16 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/health", "destination": "${FLY_BACKEND}/health" },
+    { "source": "/sentry-classify", "destination": "${FLY_BACKEND}/sentry-classify" },
+    { "source": "/inbox", "destination": "${FLY_BACKEND}/inbox" },
+    { "source": "/workflow", "destination": "${FLY_BACKEND}/workflow" },
+    { "source": "/workflow-sync", "destination": "${FLY_BACKEND}/workflow-sync" },
+    { "source": "/workflow/status/:id+", "destination": "${FLY_BACKEND}/workflow/status/:id+" },
+    { "source": "/incidents", "destination": "${FLY_BACKEND}/incidents" },
+    { "source": "/incident/:id+", "destination": "${FLY_BACKEND}/incident/:id+" },
+    { "source": "/export/:id+", "destination": "${FLY_BACKEND}/export/:id+" },
+    { "source": "/triage/:key", "destination": "${FLY_BACKEND}/triage/:key" }
+  ]
+}

@@ -2604,3 +2604,61 @@ that satisfies the working-project requirement is:
 
 No implementation has started. The local application at d115e3d is
 preserved. Paused for the account/credential decisions above.
+
+## Checkpoint 34 — Public deployment configuration (in progress)
+
+### Single-machine reconfiguration
+
+- `fly.toml` updated: `max_machines_running = 1` to enforce exactly one
+  serving machine. Second machine (`830375a72dede8`) destroyed.
+- Verified machine count: 1 (`8eddde3bd7e1e8`).
+- Confirmed the app is not safe with multiple machines because incidents
+  and locks live in process memory.
+
+### Authorization gate added
+
+- `app/main.py`: new `NS_DEMO_TOKEN` bearer-token middleware. Read-only
+  GET endpoints (health, incidents, incident GET, export) remain public
+  so the console can display status. Mutating POST endpoints (`/workflow`,
+  `/inbox`, `/incident/*`, `/sentry-classify`) require
+  `Authorization: Bearer <token>` when `NS_DEMO_TOKEN` is set.
+- `static/app.js`: `fetchJson` now sends the bearer token on non-GET
+  requests when `window.NS_DEMO_TOKEN` is set.
+- `templates/index.html`: token injected into the page.
+- Token generated and set as Fly secret (`NS_DEMO_TOKEN`).
+
+### Same-origin Vercel proxy chosen
+
+- `vercel.json` rewritten to proxy API routes to the Fly backend via
+  the `FLY_BACKEND` environment variable. The frontend's `API_BASE`
+  remains empty (same-origin), satisfying the requirement not to leave
+  unresolved placeholders in static files.
+
+### Current blocker
+
+Fly.io trial machines are limited to 5 minutes runtime. The qwen3:4b
+model pull (~2.5 GB + load) consumes most of that window, so the
+machine is stopped before uvicorn can serve traffic. HTTP health checks
+time out.
+
+**Required next step:** add a credit card to the Fly.io account at
+https://fly.io/trial to lift the 5-minute limit. Estimated cost for a
+single `shared-cpu-2x` 4 GB machine: roughly $10–15/month if left
+running continuously, or a few dollars if stopped between demos.
+
+### Code changes ready
+
+- `app/main.py`: configurable inference URL/model, CORS, auth gate
+- `app/ollama_client.py`: configurable inference URL/model
+- `static/app.js`: configurable API base + bearer token
+- `templates/index.html`: injects API base and token
+- `Dockerfile`, `fly.toml`, `deploy-entrypoint.sh`, `.dockerignore`,
+  `vercel.json`
+
+### Tests
+
+Local full suite: 230 passed, 0 failed.
+
+### Status
+
+Paused awaiting Fly.io payment-method completion.

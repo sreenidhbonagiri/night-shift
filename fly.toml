@@ -1,0 +1,23 @@
+# Night Shift execution backend — Fly.io configuration.
+# Persistent process holding in-memory incidents/locks, running the real
+# workflow thread, disposable QA venvs, Git fixtures, and private staging.
+app = "night-shift-exec"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+  max_machines_running = 1
+
+# qwen3:4b needs ~4 GB RAM; the shared-cpu-2x with 4 GB is the minimum.
+# max_machines_running=1 and no HA is intentional: incidents and locks live
+# in process memory, so requests must not alternate between machines.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4gb"

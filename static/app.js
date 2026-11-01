@@ -25,8 +25,17 @@ function badge(label, kind = 'neutral') {
 function metric(label, value, kind = '') {
   return `<div class="metric ${kind}"><span class="label">${esc(label)}</span><div class="value">${esc(value)}</div></div>`;
 }
+// API_BASE is empty for same-origin (local dev or Vercel proxy).
+// Set window.NS_API_BASE to point at a separate execution backend host.
+// Set window.NS_DEMO_TOKEN for the public demo bearer-token gate.
+const API_BASE = (typeof window !== 'undefined' && window.NS_API_BASE) || '';
+const DEMO_TOKEN = (typeof window !== 'undefined' && window.NS_DEMO_TOKEN) || '';
 async function fetchJson(url, method) {
-  const r = await fetch(url, { method: method || 'GET' });
+  const headers = {};
+  if (DEMO_TOKEN && method && method !== 'GET') {
+    headers['Authorization'] = 'Bearer ' + DEMO_TOKEN;
+  }
+  const r = await fetch(API_BASE + url, { method: method || 'GET', headers });
   return r.json();
 }
 

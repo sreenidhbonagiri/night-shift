@@ -1,12 +1,18 @@
-"""Shared Ollama client for Night Shift agents."""
+"""Shared Ollama client for Night Shift agents.
+
+The inference endpoint and model are configurable via environment
+variables OLLAMA_URL and OLLAMA_MODEL, defaulting to the local Ollama
+instance. Local behavior is unchanged when these are absent.
+"""
 import json
+import os
 import time
 from typing import Any
 
 import httpx
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "qwen3:4b"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
+MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:4b")
 
 
 def call_model(system_prompt: str, user_prompt: str, expect_json: bool = True, timeout: float = 120.0) -> dict[str, Any]:
