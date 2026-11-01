@@ -28,59 +28,11 @@ ALLOWED = {"CRITICAL", "WARNING", "INFO", "FALSE_POSITIVE"}
 
 app = FastAPI(title="Night Shift")
 
-# Server-enforced HTTP Basic auth for public deployment.
-# NS_BASIC_USER and NS_BASIC_PASS are set as hosting secrets only.
-# When both are set, all endpoints except the public landing page (/)
-# and /health require Basic auth. The landing page stays public.
-# No credentials appear in tracked files or frontend code.
-_BASIC_USER = os.environ.get("NS_BASIC_USER")
-_BASIC_PASS = os.environ.get("NS_BASIC_PASS")
-# Public paths that do not require auth (landing page + health).
-_PUBLIC_PATHS = {"/", "/health"}
-
-
-@app.middleware("http")
-async def _basic_auth_gate(request: Request, call_next):
-    """HTTP Basic auth gate for public deployment.
-
-    When NS_BASIC_USER and NS_BASIC_PASS are both set, every endpoint
-    except the public landing page (/) and /health requires valid Basic
-    credentials. This protects the console, all incident/inference/
-    workflow/approval/release/export endpoints — including GET.
-    Browser requests and JSON downloads work through the same origin
-    because the browser presents the login dialog once per session.
-    """
-    if not (_BASIC_USER and _BASIC_PASS):
-        return await call_next(request)
-    path = request.url.path.rstrip("/") or "/"
-    if path in _PUBLIC_PATHS:
-        return await call_next(request)
-    import base64, secrets as _secrets
-    auth_header = request.headers.get("authorization", "")
-    if not auth_header.startswith("Basic "):
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Unauthorized"},
-            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
-        )
-    try:
-        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
-        user, _, password = decoded.partition(":")
-    except Exception:
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Unauthorized"},
-            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
-        )
-    # Constant-time comparison to avoid timing attacks.
-    if not (_secrets.compare_digest(user, _BASIC_USER)
-            and _secrets.compare_digest(password, _BASIC_PASS)):
-        return JSONResponse(
-            status_code=401,
-            content={"error": "Unauthorized"},
-            headers={"WWW-Authenticate": 'Basic realm="Night Shift Demo"'},
-        )
-    return await call_next(request)
+# Shared public synthetic demo: HTTP Basic auth removed per request.
+# Safeguards preserved: explicit patch approval gate, Git/artifact
+# commit-tree binding, single-execution workflow limit, private
+# Ollama (127.0.0.1:11434) and staging (127.0.0.1) ports, and the
+# strict verifier. Only owned synthetic fixtures are processed.
 
 static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
 if os.path.isdir(static_dir):

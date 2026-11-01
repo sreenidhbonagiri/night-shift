@@ -250,7 +250,10 @@ def _interpret(advisory_context: str, reads: list, collection_problems: list,
         "uncertainty, evidence citations, proposal, and rationale."
     )
 
-    result = _call(system_prompt, user_prompt, expect_json=True, timeout=180.0)
+    # timeout=None lets the shared client apply its configured default
+    # (OLLAMA_TIMEOUT env var), so the Engineer cannot silently override
+    # the deployment's model-timeout setting.
+    result = _call(system_prompt, user_prompt, expect_json=True, timeout=None)
     ts = datetime.now(timezone.utc).isoformat()
     elapsed_ms = result.get("elapsed_ms", 0.0)
     raw = result.get("raw", "")
