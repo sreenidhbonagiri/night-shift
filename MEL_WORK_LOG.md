@@ -2662,3 +2662,87 @@ Local full suite: 230 passed, 0 failed.
 ### Status
 
 Paused awaiting Fly.io payment-method completion.
+
+## Checkpoint 35 — Hosted deployment result (Fly.io)
+
+### Submission URL
+`https://night-shift-exec.fly.dev` — landing page public, console at `/app`
+requires HTTP Basic auth.
+
+### Incident 8f7f2079-0453-430d-b396-7e2cb52107eb — FAILED
+
+Hosted workflow on Fly.io shared-cpu-2x (4 GB) with co-located Ollama
+qwen3:4b. OLLAMA_TIMEOUT=300s.
+
+**Timeline:**
+- Alert: 19:07:34Z
+- Sentry completed: 19:09:14Z (100,147 ms) — correctly classified
+  ACTIONABLE/CRITICAL.
+- QA attempt 1 (fault injection, jinja2==3.1.2): 19:11:29Z (126,338 ms)
+  — correctly rejected. 2 test failures, deterministic veto fired.
+- Engineer attempt 2: 19:17:30Z (180,482 ms) — **MODEL TIMED OUT**.
+  Grounding call failed: "model error: timed out". No interpretation
+  performed. Workflow correctly failed closed → needs_human_review.
+- Total elapsed alert to handoff: 595,464 ms (~9.9 minutes).
+
+**Root cause:** qwen3:4b on shared CPU runs at ~5 tokens/s. The engineer's
+grounding prompt (file reads + model interpretation) exceeds even the
+300s timeout. This is a resource limitation, not a code defect. The
+workflow's fail-closed behavior is correct — no ungrounded proposal
+was produced.
+
+**Evidence exported and saved privately:**
+`~/night-shift-mel-private/hosted-incident-8f7f2079-export.json` (16,550 bytes).
+
+### Credential rotation
+
+- Exposed Basic-auth password rotated. Old password invalidated.
+- New credentials saved to:
+  `~/night-shift-mel-private/judge-credentials.txt` (chmod 600).
+- Verified: new credentials access `/app` (200), old credentials
+  rejected (401), landing page `/` public (200), `/health` public (200).
+- Machine restarted during secret update; in-memory incidents erased
+  (evidence was exported first).
+
+### What works on the hosted deployment
+
+- Landing page serves correctly (public).
+- Console serves with Basic auth (no embedded tokens).
+- HTTP Basic auth gate: all endpoints except `/` and `/health` require
+  credentials. Unauthorized access returns 401. Verified for both old
+  and new credentials.
+- Workflow starts and runs real model inference.
+- Fault injection correctly rejects the affected version.
+- Fail-closed behavior on model timeout is correct.
+- Global execution limit prevents overlapping workflows.
+- Single machine, single Uvicorn worker.
+
+### What does NOT work on the hosted deployment
+
+- The full recovery workflow cannot complete because qwen3:4b inference
+  is too slow on shared CPU (~5 tokens/s). The engineer's grounding call
+  times out even with OLLAMA_TIMEOUT=300s.
+- The hosted deployment does NOT satisfy the organizer's
+  working-project requirement for a complete live workflow. It
+  demonstrates real inference and correct fail-closed behavior, but the
+  engineer agent cannot complete its grounding step in time.
+
+### Local success (separate from hosted result)
+
+The local workflow (on the user's laptop with local Ollama) completes
+successfully: Sentry → fault-injected QA rejection → Engineer grounding
+→ corrected patch verification → approval → staging → export. This is
+verified locally with 230 passing tests and the independent browser
+verification recorded in checkpoint 31. The hosted result is a different
+environment with different resource constraints.
+
+### Unverified steps
+
+- Approval → staging → stop → export on the hosted deployment: NOT
+  completed because no verified patch was produced (engineer timed out).
+- A successful hosted run requires either a faster CPU/GPU instance or
+  a hosted inference endpoint with lower latency.
+
+### Status
+
+Implementation frozen. No further deployment changes without direction.
